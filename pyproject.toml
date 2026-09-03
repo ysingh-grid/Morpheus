@@ -1,0 +1,14 @@
+[project]
+name = "morpheus-v0-1"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "docling>=2.124.0",
+    "openai>=3.7.0",
+    "tiktoken>=0.14.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

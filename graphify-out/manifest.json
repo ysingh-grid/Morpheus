@@ -1,0 +1,37 @@
+{
+  "/Users/ysingh/PycharmProjects/Morpheus-v0.1/core/config.py": {
+    "mtime": 1788373344.9863174,
+    "ast_hash": "73927122db3210532da4e48d56de092c",
+    "semantic_hash": "73927122db3210532da4e48d56de092c"
+  },
+  "/Users/ysingh/PycharmProjects/Morpheus-v0.1/ingestion/doc_processor.py": {
+    "mtime": 1788417729.1426573,
+    "ast_hash": "3815db4f8ab242bcb92ce03070b7c096",
+    "semantic_hash": ""
+  },
+  "/Users/ysingh/PycharmProjects/Morpheus-v0.1/tests/test_doc_processor.py": {
+    "mtime": 1788374565.810463,
+    "ast_hash": "561775dfd35923f2ba611fa48a5d4f79",
+    "semantic_hash": ""
+  },
+  "/Users/ysingh/PycharmProjects/Morpheus-v0.1/tests/test_doc_processor_guardrails.py": {
+    "mtime": 1788373669.930579,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "/Users/ysingh/PycharmProjects/Morpheus-v0.1/dummy_data/ifc-annual-report-2024-financials.pdf": {
+    "mtime": 1788415527.1951187,
+    "ast_hash": "a055699b23ee3e49556f223e904feb02",
+    "semantic_hash": ""
+  },
+  "/Users/ysingh/PycharmProjects/Morpheus-v0.1/dummy_data/ifc-annual-report-2024-financials.chunks.json": {
+    "mtime": 1788416644.7397287,
+    "ast_hash": "d938860993f510a0c5aababcbe446aab",
+    "semantic_hash": ""
+  },
+  "/Users/ysingh/PycharmProjects/Morpheus-v0.1/ingestion/progress.md": {
+    "mtime": 1788418539.288842,
+    "ast_hash": "286828f0d5ffc554d9fa288c77be55c8",
+    "semantic_hash": ""
+  }
+}

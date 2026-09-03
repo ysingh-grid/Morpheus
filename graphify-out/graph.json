@@ -1,0 +1,2991 @@
+{
+  "nodes": [
+    {
+      "id": "ingestion_doc_processor_py",
+      "label": "doc_processor.py",
+      "file_type": "code",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "ingestion_doc_processor_processedchunk",
+      "label": "ProcessedChunk",
+      "file_type": "code",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L26"
+    },
+    {
+      "id": "typeddict",
+      "label": "TypedDict",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "ingestion_doc_processor_encoding",
+      "label": "_encoding()",
+      "file_type": "code",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L36"
+    },
+    {
+      "id": "ingestion_doc_processor_caption_image",
+      "label": "_caption_image()",
+      "file_type": "code",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L41"
+    },
+    {
+      "id": "ingestion_doc_processor_figure_metadata",
+      "label": "_figure_metadata()",
+      "file_type": "code",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L75"
+    },
+    {
+      "id": "ingestion_doc_processor_replace_image_placeholders",
+      "label": "_replace_image_placeholders()",
+      "file_type": "code",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L106"
+    },
+    {
+      "id": "ingestion_doc_processor_summarize_document",
+      "label": "_summarize_document()",
+      "file_type": "code",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L119"
+    },
+    {
+      "id": "ingestion_doc_processor_split_tokens",
+      "label": "_split_tokens()",
+      "file_type": "code",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L143"
+    },
+    {
+      "id": "ingestion_doc_processor_process_document",
+      "label": "process_document()",
+      "file_type": "code",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L152"
+    },
+    {
+      "id": "ingestion_doc_processor_rationale_1",
+      "label": "Convert local documents into context-rich chunks for retrieval.",
+      "file_type": "rationale",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "ingestion_doc_processor_rationale_27",
+      "label": "A retrieval child chunk with its parent context and document metadata.",
+      "file_type": "rationale",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L27"
+    },
+    {
+      "id": "ingestion_doc_processor_rationale_37",
+      "label": "Return the tokenizer used to enforce stable chunk-size boundaries.",
+      "file_type": "rationale",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L37"
+    },
+    {
+      "id": "ingestion_doc_processor_rationale_42",
+      "label": "Generate a dense semantic caption for a Docling-extracted image.",
+      "file_type": "rationale",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L42"
+    },
+    {
+      "id": "ingestion_doc_processor_rationale_76",
+      "label": "Caption each extracted figure and retain its page-level bounding boxes.",
+      "file_type": "rationale",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L76"
+    },
+    {
+      "id": "ingestion_doc_processor_rationale_107",
+      "label": "Replace Docling's image placeholders with the generated figure captions.",
+      "file_type": "rationale",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L107"
+    },
+    {
+      "id": "ingestion_doc_processor_rationale_120",
+      "label": "Create the required concise, global context for every retrieval chunk.",
+      "file_type": "rationale",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L120"
+    },
+    {
+      "id": "ingestion_doc_processor_rationale_144",
+      "label": "Split text into bounded token groups without discarding content.",
+      "file_type": "rationale",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L144"
+    },
+    {
+      "id": "ingestion_doc_processor_rationale_153",
+      "label": "Convert one local document into hierarchical, retrieval-ready child chunks.",
+      "file_type": "rationale",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L153"
+    },
+    {
+      "id": "core_config_py",
+      "label": "config.py",
+      "file_type": "code",
+      "source_file": "core/config.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "core_config_rationale_1",
+      "label": "Shared configuration for the application language model.",
+      "file_type": "rationale",
+      "source_file": "core/config.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_doc_processor_py",
+      "label": "test_doc_processor.py",
+      "file_type": "code",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_doc_processor_gemini_api_key",
+      "label": "gemini_api_key()",
+      "file_type": "code",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L13"
+    },
+    {
+      "id": "tests_test_doc_processor_test_process_document_with_real_docling_and_gemini",
+      "label": "test_process_document_with_real_docling_and_gemini()",
+      "file_type": "code",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L21"
+    },
+    {
+      "id": "tests_test_doc_processor_rationale_1",
+      "label": "Live integration coverage for document ingestion.",
+      "file_type": "rationale",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "tests_test_doc_processor_rationale_14",
+      "label": "Require credentials because this test sends a real Gemini request.",
+      "file_type": "rationale",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L14"
+    },
+    {
+      "id": "tests_test_doc_processor_rationale_25",
+      "label": "Process a real local image with Docling and Gemini, without mocks.",
+      "file_type": "rationale",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L25"
+    },
+    {
+      "id": "tests_test_doc_processor_guardrails_py",
+      "label": "test_doc_processor_guardrails.py",
+      "file_type": "code",
+      "source_file": "tests/test_doc_processor_guardrails.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "ingestion_progress_md",
+      "label": "progress.md",
+      "file_type": "document",
+      "source_file": "ingestion/progress.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "ingestion_progress_ingestion_progress",
+      "label": "Ingestion Progress",
+      "file_type": "document",
+      "source_file": "ingestion/progress.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "ingestion_progress_completed",
+      "label": "Completed",
+      "file_type": "document",
+      "source_file": "ingestion/progress.md",
+      "source_location": "L3"
+    },
+    {
+      "id": "ingestion_progress_missing",
+      "label": "Missing",
+      "file_type": "document",
+      "source_file": "ingestion/progress.md",
+      "source_location": "L13"
+    },
+    {
+      "id": "ingestion_progress_known_issues",
+      "label": "Known Issues",
+      "file_type": "document",
+      "source_file": "ingestion/progress.md",
+      "source_location": "L19"
+    },
+    {
+      "id": "ingestion_doc_processor_rationale_25",
+      "label": "A retrieval child chunk with its parent context and document metadata.",
+      "file_type": "rationale",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L25"
+    },
+    {
+      "id": "ingestion_doc_processor_rationale_35",
+      "label": "Return the tokenizer used to enforce stable chunk-size boundaries.",
+      "file_type": "rationale",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L35"
+    },
+    {
+      "id": "ingestion_doc_processor_rationale_40",
+      "label": "Generate a dense semantic caption for a Docling-extracted image.",
+      "file_type": "rationale",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L40"
+    },
+    {
+      "id": "ingestion_doc_processor_rationale_74",
+      "label": "Caption each extracted figure and retain its page-level bounding boxes.",
+      "file_type": "rationale",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L74"
+    },
+    {
+      "id": "ingestion_doc_processor_rationale_105",
+      "label": "Replace Docling's image placeholders with the generated figure captions.",
+      "file_type": "rationale",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L105"
+    },
+    {
+      "id": "ingestion_doc_processor_rationale_118",
+      "label": "Create the required concise, global context for every retrieval chunk.",
+      "file_type": "rationale",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L118"
+    },
+    {
+      "id": "ingestion_doc_processor_rationale_142",
+      "label": "Split text into bounded token groups without discarding content.",
+      "file_type": "rationale",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L142"
+    },
+    {
+      "id": "ingestion_doc_processor_rationale_151",
+      "label": "Convert one local document into hierarchical, retrieval-ready child chunks.",
+      "file_type": "rationale",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L151"
+    },
+    {
+      "id": "ingestion_doc_processor_rationale_22",
+      "label": "A retrieval child chunk with its parent context and document metadata.",
+      "file_type": "rationale",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L22"
+    },
+    {
+      "id": "ingestion_doc_processor_rationale_32",
+      "label": "Return the tokenizer used to enforce stable chunk-size boundaries.",
+      "file_type": "rationale",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L32"
+    },
+    {
+      "id": "ingestion_doc_processor_rationale_68",
+      "label": "Caption each extracted figure and retain its page-level bounding boxes.",
+      "file_type": "rationale",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L68"
+    },
+    {
+      "id": "ingestion_doc_processor_rationale_95",
+      "label": "Replace Docling's image placeholders with the generated figure captions.",
+      "file_type": "rationale",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L95"
+    },
+    {
+      "id": "ingestion_doc_processor_rationale_103",
+      "label": "Create the required concise, global context for every retrieval chunk.",
+      "file_type": "rationale",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L103"
+    },
+    {
+      "id": "ingestion_doc_processor_rationale_121",
+      "label": "Split text into bounded token groups without discarding content.",
+      "file_type": "rationale",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L121"
+    },
+    {
+      "id": "ingestion_doc_processor_rationale_128",
+      "label": "Convert one local document into hierarchical, retrieval-ready child chunks.",
+      "file_type": "rationale",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L128"
+    },
+    {
+      "id": "tests_test_doc_processor_rationale_12",
+      "label": "Require credentials because this test sends a real Gemini request.",
+      "file_type": "rationale",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L12"
+    },
+    {
+      "id": "tests_test_doc_processor_rationale_23",
+      "label": "Process a real local image with Docling and Gemini, without mocks.",
+      "file_type": "rationale",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L23"
+    },
+    {
+      "id": "tests_test_doc_processor_mock_docling_result",
+      "label": "mock_docling_result()",
+      "file_type": "code",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L7"
+    },
+    {
+      "id": "tests_test_doc_processor_mock_openai_response",
+      "label": "mock_openai_response()",
+      "file_type": "code",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L22"
+    },
+    {
+      "id": "tests_test_doc_processor_test_vision_caption_replacement_and_summary",
+      "label": "test_vision_caption_replacement_and_summary()",
+      "file_type": "code",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L34"
+    },
+    {
+      "id": "tests_test_doc_processor_test_hierarchical_chunking_and_output_schema",
+      "label": "test_hierarchical_chunking_and_output_schema()",
+      "file_type": "code",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L62"
+    },
+    {
+      "id": "tests_test_doc_processor_test_docling_failure_does_not_silently_fallback",
+      "label": "test_docling_failure_does_not_silently_fallback()",
+      "file_type": "code",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L92"
+    },
+    {
+      "id": "tests_test_doc_processor_rationale_8",
+      "label": "Mock standard Docling DocumentConverter output.",
+      "file_type": "rationale",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L8"
+    },
+    {
+      "id": "tests_test_doc_processor_rationale_37",
+      "label": "Test that image tags are replaced with VLM captions and global summaries are gen",
+      "file_type": "rationale",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L37"
+    },
+    {
+      "id": "tests_test_doc_processor_rationale_65",
+      "label": "Test output list structure, chunk size limits, and parent-child linkage.",
+      "file_type": "rationale",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L65"
+    },
+    {
+      "id": "tests_test_doc_processor_rationale_93",
+      "label": "Verify that if Docling fails, an exception is raised rather than falling back to",
+      "file_type": "rationale",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L93"
+    },
+    {
+      "id": "config_py",
+      "label": "config.py",
+      "file_type": "code",
+      "source_file": "config.py",
+      "source_location": "L1"
+    }
+  ],
+  "hyperedges": [],
+  "input_tokens": 0,
+  "output_tokens": 0,
+  "links": [
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "base64",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L3",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "logging",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L4",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "io",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L5",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "pathlib",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L6",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "typing",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L7",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "tiktoken",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L9",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "docling_datamodel_base_models",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L10",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "docling_datamodel_pipeline_options",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L11",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "docling_document_converter",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L12",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "docling_core_types_doc",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L13",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "core_config",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L15",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_processedchunk",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L26",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_processedchunk",
+      "target": "typeddict",
+      "relation": "inherits",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L26",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_encoding",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L36",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_caption_image",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L41",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_figure_metadata",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L75",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_replace_image_placeholders",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L106",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_summarize_document",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L119",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_split_tokens",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L143",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_process_document",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L152",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_figure_metadata",
+      "target": "ingestion_doc_processor_caption_image",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L97",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_split_tokens",
+      "target": "ingestion_doc_processor_encoding",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L145",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_figure_metadata",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L183",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_replace_image_placeholders",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L189",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_summarize_document",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L190",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_split_tokens",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L193",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_1",
+      "target": "ingestion_doc_processor_py",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_27",
+      "target": "ingestion_doc_processor_processedchunk",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L27",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_37",
+      "target": "ingestion_doc_processor_encoding",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L37",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_42",
+      "target": "ingestion_doc_processor_caption_image",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L42",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_76",
+      "target": "ingestion_doc_processor_figure_metadata",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L76",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_107",
+      "target": "ingestion_doc_processor_replace_image_placeholders",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L107",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_120",
+      "target": "ingestion_doc_processor_summarize_document",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L120",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_144",
+      "target": "ingestion_doc_processor_split_tokens",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L144",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_153",
+      "target": "ingestion_doc_processor_process_document",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L153",
+      "weight": 1.0
+    },
+    {
+      "source": "core_config_py",
+      "target": "os",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "core/config.py",
+      "source_location": "L3",
+      "weight": 1.0
+    },
+    {
+      "source": "core_config_py",
+      "target": "openai",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "core/config.py",
+      "source_location": "L5",
+      "weight": 1.0
+    },
+    {
+      "source": "core_config_rationale_1",
+      "target": "core_config_py",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "core/config.py",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_py",
+      "target": "os",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L3",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_py",
+      "target": "pathlib",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L4",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_py",
+      "target": "pytest",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L6",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_py",
+      "target": "docx",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L7",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_py",
+      "target": "docx_shared",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L8",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_py",
+      "target": "pil",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L9",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_py",
+      "target": "tests_test_doc_processor_gemini_api_key",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L13",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_py",
+      "target": "tests_test_doc_processor_test_process_document_with_real_docling_and_gemini",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_rationale_1",
+      "target": "tests_test_doc_processor_py",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_rationale_14",
+      "target": "tests_test_doc_processor_gemini_api_key",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L14",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_rationale_25",
+      "target": "tests_test_doc_processor_test_process_document_with_real_docling_and_gemini",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L25",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_progress_md",
+      "target": "ingestion_progress_ingestion_progress",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/progress.md",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_progress_ingestion_progress",
+      "target": "ingestion_progress_completed",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/progress.md",
+      "source_location": "L3",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_progress_ingestion_progress",
+      "target": "ingestion_progress_missing",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/progress.md",
+      "source_location": "L13",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_progress_ingestion_progress",
+      "target": "ingestion_progress_known_issues",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/progress.md",
+      "source_location": "L19",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_test_process_document_with_real_docling_and_gemini",
+      "target": "ingestion_doc_processor_process_document",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L43",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_processedchunk",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L26",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_processedchunk",
+      "target": "typeddict",
+      "relation": "inherits",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L26",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_encoding",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L36",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_caption_image",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L41",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_figure_metadata",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L75",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_replace_image_placeholders",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L106",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_summarize_document",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L119",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_split_tokens",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L143",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_process_document",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L152",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_figure_metadata",
+      "target": "ingestion_doc_processor_caption_image",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L97",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_split_tokens",
+      "target": "ingestion_doc_processor_encoding",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L145",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_figure_metadata",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L183",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_replace_image_placeholders",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L189",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_summarize_document",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L190",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_split_tokens",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L193",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_1",
+      "target": "ingestion_doc_processor_py",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_27",
+      "target": "ingestion_doc_processor_processedchunk",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L27",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_37",
+      "target": "ingestion_doc_processor_encoding",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L37",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_42",
+      "target": "ingestion_doc_processor_caption_image",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L42",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_76",
+      "target": "ingestion_doc_processor_figure_metadata",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L76",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_107",
+      "target": "ingestion_doc_processor_replace_image_placeholders",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L107",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_120",
+      "target": "ingestion_doc_processor_summarize_document",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L120",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_144",
+      "target": "ingestion_doc_processor_split_tokens",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L144",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_153",
+      "target": "ingestion_doc_processor_process_document",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L153",
+      "weight": 1.0
+    },
+    {
+      "source": "core_config_rationale_1",
+      "target": "core_config_py",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "core/config.py",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_py",
+      "target": "tests_test_doc_processor_gemini_api_key",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L13",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_py",
+      "target": "tests_test_doc_processor_test_process_document_with_real_docling_and_gemini",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_rationale_1",
+      "target": "tests_test_doc_processor_py",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_rationale_14",
+      "target": "tests_test_doc_processor_gemini_api_key",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L14",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_rationale_25",
+      "target": "tests_test_doc_processor_test_process_document_with_real_docling_and_gemini",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L25",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_test_process_document_with_real_docling_and_gemini",
+      "target": "ingestion_doc_processor_process_document",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L43",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_processedchunk",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L26",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_processedchunk",
+      "target": "typeddict",
+      "relation": "inherits",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L26",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_encoding",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L36",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_caption_image",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L41",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_figure_metadata",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L75",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_replace_image_placeholders",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L106",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_summarize_document",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L119",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_split_tokens",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L143",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_process_document",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L152",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_figure_metadata",
+      "target": "ingestion_doc_processor_caption_image",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L97",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_split_tokens",
+      "target": "ingestion_doc_processor_encoding",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L145",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_figure_metadata",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L179",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_replace_image_placeholders",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L185",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_summarize_document",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L186",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_split_tokens",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L189",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_1",
+      "target": "ingestion_doc_processor_py",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_27",
+      "target": "ingestion_doc_processor_processedchunk",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L27",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_37",
+      "target": "ingestion_doc_processor_encoding",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L37",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_42",
+      "target": "ingestion_doc_processor_caption_image",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L42",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_76",
+      "target": "ingestion_doc_processor_figure_metadata",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L76",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_107",
+      "target": "ingestion_doc_processor_replace_image_placeholders",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L107",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_120",
+      "target": "ingestion_doc_processor_summarize_document",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L120",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_144",
+      "target": "ingestion_doc_processor_split_tokens",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L144",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_153",
+      "target": "ingestion_doc_processor_process_document",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L153",
+      "weight": 1.0
+    },
+    {
+      "source": "core_config_rationale_1",
+      "target": "core_config_py",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "core/config.py",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_py",
+      "target": "tests_test_doc_processor_gemini_api_key",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L13",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_py",
+      "target": "tests_test_doc_processor_test_process_document_with_real_docling_and_gemini",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_rationale_1",
+      "target": "tests_test_doc_processor_py",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_rationale_14",
+      "target": "tests_test_doc_processor_gemini_api_key",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L14",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_rationale_25",
+      "target": "tests_test_doc_processor_test_process_document_with_real_docling_and_gemini",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L25",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_test_process_document_with_real_docling_and_gemini",
+      "target": "ingestion_doc_processor_process_document",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L43",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_processedchunk",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L24",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_processedchunk",
+      "target": "typeddict",
+      "relation": "inherits",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L24",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_encoding",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L34",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_caption_image",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L39",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_figure_metadata",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L73",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_replace_image_placeholders",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L104",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_summarize_document",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L117",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_split_tokens",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L141",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_process_document",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L150",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_figure_metadata",
+      "target": "ingestion_doc_processor_caption_image",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L95",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_split_tokens",
+      "target": "ingestion_doc_processor_encoding",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L143",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_figure_metadata",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L168",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_replace_image_placeholders",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L174",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_summarize_document",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L175",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_split_tokens",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L178",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_1",
+      "target": "ingestion_doc_processor_py",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_25",
+      "target": "ingestion_doc_processor_processedchunk",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L25",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_35",
+      "target": "ingestion_doc_processor_encoding",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L35",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_40",
+      "target": "ingestion_doc_processor_caption_image",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L40",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_74",
+      "target": "ingestion_doc_processor_figure_metadata",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L74",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_105",
+      "target": "ingestion_doc_processor_replace_image_placeholders",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L105",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_118",
+      "target": "ingestion_doc_processor_summarize_document",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L118",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_142",
+      "target": "ingestion_doc_processor_split_tokens",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L142",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_151",
+      "target": "ingestion_doc_processor_process_document",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L151",
+      "weight": 1.0
+    },
+    {
+      "source": "core_config_rationale_1",
+      "target": "core_config_py",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "core/config.py",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_py",
+      "target": "tests_test_doc_processor_gemini_api_key",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L13",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_py",
+      "target": "tests_test_doc_processor_test_process_document_with_real_docling_and_gemini",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_rationale_1",
+      "target": "tests_test_doc_processor_py",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_rationale_14",
+      "target": "tests_test_doc_processor_gemini_api_key",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L14",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_rationale_25",
+      "target": "tests_test_doc_processor_test_process_document_with_real_docling_and_gemini",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L25",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_test_process_document_with_real_docling_and_gemini",
+      "target": "ingestion_doc_processor_process_document",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L43",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_processedchunk",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_processedchunk",
+      "target": "typeddict",
+      "relation": "inherits",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_encoding",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L31",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_caption_image",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L36",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_figure_metadata",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L67",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_replace_image_placeholders",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L94",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_summarize_document",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L102",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_split_tokens",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L120",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_process_document",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L127",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_figure_metadata",
+      "target": "ingestion_doc_processor_caption_image",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L87",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_split_tokens",
+      "target": "ingestion_doc_processor_encoding",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L122",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_figure_metadata",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L140",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_replace_image_placeholders",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L145",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_summarize_document",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L146",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_split_tokens",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L149",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_1",
+      "target": "ingestion_doc_processor_py",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_22",
+      "target": "ingestion_doc_processor_processedchunk",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L22",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_32",
+      "target": "ingestion_doc_processor_encoding",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L32",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_37",
+      "target": "ingestion_doc_processor_caption_image",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L37",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_68",
+      "target": "ingestion_doc_processor_figure_metadata",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L68",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_95",
+      "target": "ingestion_doc_processor_replace_image_placeholders",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L95",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_103",
+      "target": "ingestion_doc_processor_summarize_document",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L103",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_121",
+      "target": "ingestion_doc_processor_split_tokens",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L121",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_128",
+      "target": "ingestion_doc_processor_process_document",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L128",
+      "weight": 1.0
+    },
+    {
+      "source": "core_config_rationale_1",
+      "target": "core_config_py",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "core/config.py",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_py",
+      "target": "tests_test_doc_processor_gemini_api_key",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L13",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_py",
+      "target": "tests_test_doc_processor_test_process_document_with_real_docling_and_gemini",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_rationale_1",
+      "target": "tests_test_doc_processor_py",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_rationale_14",
+      "target": "tests_test_doc_processor_gemini_api_key",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L14",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_rationale_25",
+      "target": "tests_test_doc_processor_test_process_document_with_real_docling_and_gemini",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L25",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_test_process_document_with_real_docling_and_gemini",
+      "target": "ingestion_doc_processor_process_document",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L43",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_processedchunk",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_processedchunk",
+      "target": "typeddict",
+      "relation": "inherits",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_encoding",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L31",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_caption_image",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L36",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_figure_metadata",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L67",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_replace_image_placeholders",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L94",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_summarize_document",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L102",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_split_tokens",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L120",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_process_document",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L127",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_figure_metadata",
+      "target": "ingestion_doc_processor_caption_image",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L87",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_split_tokens",
+      "target": "ingestion_doc_processor_encoding",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L122",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_figure_metadata",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L140",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_replace_image_placeholders",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L145",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_summarize_document",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L146",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_split_tokens",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L149",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_1",
+      "target": "ingestion_doc_processor_py",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_22",
+      "target": "ingestion_doc_processor_processedchunk",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L22",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_32",
+      "target": "ingestion_doc_processor_encoding",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L32",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_37",
+      "target": "ingestion_doc_processor_caption_image",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L37",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_68",
+      "target": "ingestion_doc_processor_figure_metadata",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L68",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_95",
+      "target": "ingestion_doc_processor_replace_image_placeholders",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L95",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_103",
+      "target": "ingestion_doc_processor_summarize_document",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L103",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_121",
+      "target": "ingestion_doc_processor_split_tokens",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L121",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_128",
+      "target": "ingestion_doc_processor_process_document",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L128",
+      "weight": 1.0
+    },
+    {
+      "source": "core_config_rationale_1",
+      "target": "core_config_py",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "core/config.py",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_py",
+      "target": "tests_test_doc_processor_gemini_api_key",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L11",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_py",
+      "target": "tests_test_doc_processor_test_process_document_with_real_docling_and_gemini",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L19",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_rationale_1",
+      "target": "tests_test_doc_processor_py",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_rationale_12",
+      "target": "tests_test_doc_processor_gemini_api_key",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L12",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_rationale_23",
+      "target": "tests_test_doc_processor_test_process_document_with_real_docling_and_gemini",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L23",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_test_process_document_with_real_docling_and_gemini",
+      "target": "ingestion_doc_processor_process_document",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L34",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_processedchunk",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_processedchunk",
+      "target": "typeddict",
+      "relation": "inherits",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_encoding",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L31",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_caption_image",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L36",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_figure_metadata",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L67",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_replace_image_placeholders",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L94",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_summarize_document",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L102",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_split_tokens",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L120",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_process_document",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L127",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_figure_metadata",
+      "target": "ingestion_doc_processor_caption_image",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L87",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_split_tokens",
+      "target": "ingestion_doc_processor_encoding",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L122",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_figure_metadata",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L140",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_replace_image_placeholders",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L145",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_summarize_document",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L146",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_split_tokens",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L149",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_1",
+      "target": "ingestion_doc_processor_py",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_22",
+      "target": "ingestion_doc_processor_processedchunk",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L22",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_32",
+      "target": "ingestion_doc_processor_encoding",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L32",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_37",
+      "target": "ingestion_doc_processor_caption_image",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L37",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_68",
+      "target": "ingestion_doc_processor_figure_metadata",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L68",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_95",
+      "target": "ingestion_doc_processor_replace_image_placeholders",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L95",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_103",
+      "target": "ingestion_doc_processor_summarize_document",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L103",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_121",
+      "target": "ingestion_doc_processor_split_tokens",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L121",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_128",
+      "target": "ingestion_doc_processor_process_document",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L128",
+      "weight": 1.0
+    },
+    {
+      "source": "core_config_rationale_1",
+      "target": "core_config_py",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "core/config.py",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_py",
+      "target": "tests_test_doc_processor_mock_docling_result",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L7",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_py",
+      "target": "tests_test_doc_processor_mock_openai_response",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L22",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_py",
+      "target": "tests_test_doc_processor_test_vision_caption_replacement_and_summary",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L34",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_py",
+      "target": "tests_test_doc_processor_test_hierarchical_chunking_and_output_schema",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L62",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_py",
+      "target": "tests_test_doc_processor_test_docling_failure_does_not_silently_fallback",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L92",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_test_vision_caption_replacement_and_summary",
+      "target": "tests_test_doc_processor_mock_openai_response",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L45",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_test_hierarchical_chunking_and_output_schema",
+      "target": "tests_test_doc_processor_mock_openai_response",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L70",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_rationale_8",
+      "target": "tests_test_doc_processor_mock_docling_result",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L8",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_rationale_23",
+      "target": "tests_test_doc_processor_mock_openai_response",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L23",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_rationale_37",
+      "target": "tests_test_doc_processor_test_vision_caption_replacement_and_summary",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L37",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_rationale_65",
+      "target": "tests_test_doc_processor_test_hierarchical_chunking_and_output_schema",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L65",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_rationale_93",
+      "target": "tests_test_doc_processor_test_docling_failure_does_not_silently_fallback",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L93",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_test_vision_caption_replacement_and_summary",
+      "target": "ingestion_doc_processor_process_document",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L49",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_test_hierarchical_chunking_and_output_schema",
+      "target": "ingestion_doc_processor_process_document",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L72",
+      "weight": 1.0
+    },
+    {
+      "source": "tests_test_doc_processor_test_docling_failure_does_not_silently_fallback",
+      "target": "ingestion_doc_processor_process_document",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "tests/test_doc_processor.py",
+      "source_location": "L99",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_processedchunk",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_processedchunk",
+      "target": "typeddict",
+      "relation": "inherits",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_encoding",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L31",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_caption_image",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L36",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_figure_metadata",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L67",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_replace_image_placeholders",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L94",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_summarize_document",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L102",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_split_tokens",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L120",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_py",
+      "target": "ingestion_doc_processor_process_document",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L127",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_figure_metadata",
+      "target": "ingestion_doc_processor_caption_image",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L87",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_split_tokens",
+      "target": "ingestion_doc_processor_encoding",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L122",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_figure_metadata",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L140",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_replace_image_placeholders",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L145",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_summarize_document",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L146",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_process_document",
+      "target": "ingestion_doc_processor_split_tokens",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L149",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_1",
+      "target": "ingestion_doc_processor_py",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_22",
+      "target": "ingestion_doc_processor_processedchunk",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L22",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_32",
+      "target": "ingestion_doc_processor_encoding",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L32",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_37",
+      "target": "ingestion_doc_processor_caption_image",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L37",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_68",
+      "target": "ingestion_doc_processor_figure_metadata",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L68",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_95",
+      "target": "ingestion_doc_processor_replace_image_placeholders",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L95",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_103",
+      "target": "ingestion_doc_processor_summarize_document",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L103",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_121",
+      "target": "ingestion_doc_processor_split_tokens",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L121",
+      "weight": 1.0
+    },
+    {
+      "source": "ingestion_doc_processor_rationale_128",
+      "target": "ingestion_doc_processor_process_document",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "ingestion/doc_processor.py",
+      "source_location": "L128",
+      "weight": 1.0
+    },
+    {
+      "source": "core_config_rationale_1",
+      "target": "core_config_py",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "core/config.py",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "core_config_rationale_1",
+      "target": "config_py",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "config.py",
+      "source_location": "L1",
+      "weight": 1.0
+    }
+  ]
+}

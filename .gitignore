@@ -1,0 +1,7 @@
+.env
+.venv/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+dummy_data/*.chunks.json
+dummy_data/*.extraction.log
