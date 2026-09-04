@@ -1,0 +1,28 @@
+{
+  "name": "IFC 2024 financials retrieval benchmark",
+  "top_k": 5,
+  "cases": [
+    {"id": "table-net-income", "category": "table", "query": "What was IFC's net income in FY24?", "expected_parent_id": "ifc-annual-report-2024-financials-parent-0", "expected_table_id": "table-001"},
+    {"id": "table-income-designations", "category": "table", "query": "How is net income reconciled to income available for designations?", "expected_parent_id": "ifc-annual-report-2024-financials-parent-2", "expected_table_id": "table-003"},
+    {"id": "table-disbursements", "category": "table", "query": "What were IFC's investment portfolio disbursements?", "expected_parent_id": "ifc-annual-report-2024-financials-parent-4", "expected_table_id": "table-007"},
+    {"id": "table-amc-funds", "category": "table", "query": "What are IFC AMC Funds?", "expected_parent_id": "ifc-annual-report-2024-financials-parent-5", "expected_table_id": "table-015"},
+    {"id": "table-advisory-region", "category": "table", "query": "What were IFC Advisory Services program expenditures by region?", "expected_parent_id": "ifc-annual-report-2024-financials-parent-7", "expected_table_id": "table-016"},
+    {"id": "table-debt-risk", "category": "table", "query": "What are IFC's debt portfolio credit risk indicators?", "expected_parent_id": "ifc-annual-report-2024-financials-parent-10", "expected_table_id": "table-023"},
+    {"id": "table-income-components", "category": "table", "query": "Which main elements make up net income and other comprehensive income?", "expected_parent_id": "ifc-annual-report-2024-financials-parent-15", "expected_table_id": "table-025"},
+    {"id": "table-equity-income", "category": "table", "query": "What income came from equity investments and associated derivatives?", "expected_parent_id": "ifc-annual-report-2024-financials-parent-16", "expected_table_id": "table-029"},
+    {"id": "table-cash-flow", "category": "table", "query": "What information is in the consolidated statement of cash flows?", "expected_parent_id": "ifc-annual-report-2024-financials-parent-20", "expected_table_id": "table-044"},
+    {"id": "table-liquid-assets", "category": "table", "query": "What is IFC's liquid asset portfolio composition?", "expected_parent_id": "ifc-annual-report-2024-financials-parent-27", "expected_table_id": "table-050"},
+    {"id": "figure-income-designations", "category": "figure", "query": "Which chart shows income available for designations and net income across FY22 to FY24?", "expected_parent_id": "ifc-annual-report-2024-financials-parent-0", "expected_figure_id": "figure-002"},
+    {"id": "figure-commitments", "category": "figure", "query": "Which figure compares LTF commitments and STF commitments from FY20 to FY24?", "expected_parent_id": "ifc-annual-report-2024-financials-parent-1", "expected_figure_id": "figure-003"},
+    {"id": "figure-portfolio-management", "category": "figure", "query": "What diagram depicts Investment Portfolio Management?", "expected_parent_id": "ifc-annual-report-2024-financials-parent-3", "expected_figure_id": "figure-010"},
+    {"id": "figure-advisory-organization", "category": "figure", "query": "Which figure depicts the Upstream and Advisory Services organization?", "expected_parent_id": "ifc-annual-report-2024-financials-parent-6", "expected_figure_id": "figure-014"},
+    {"id": "figure-debt-waterfall", "category": "figure", "query": "What figure shows changes in IFC debt from June 2023 to June 2024?", "expected_parent_id": "ifc-annual-report-2024-financials-parent-7", "expected_figure_id": "figure-015"},
+    {"id": "figure-credit-risk", "category": "figure", "query": "Which chart presents IFC debt portfolio credit risk indicators?", "expected_parent_id": "ifc-annual-report-2024-financials-parent-10", "expected_figure_id": "figure-020"},
+    {"id": "figure-net-income-waterfall", "category": "figure", "query": "What chart breaks down the change in net income?", "expected_parent_id": "ifc-annual-report-2024-financials-parent-15", "expected_figure_id": "figure-022"},
+    {"id": "figure-board-structure", "category": "figure", "query": "What figure shows the IFC Board Structure?", "expected_parent_id": "ifc-annual-report-2024-financials-parent-16", "expected_figure_id": "figure-025"},
+    {"id": "quoted-input", "category": "raw-input", "query": "\"IFC Advisory Services\" \"Program Expenditures\" region", "expected_parent_id": "ifc-annual-report-2024-financials-parent-7", "expected_table_id": "table-016"},
+    {"id": "numeric-input", "category": "raw-input", "query": "$31,654 million own account commitments FY24", "expected_parent_id": "ifc-annual-report-2024-financials-parent-0", "expected_table_id": "table-001"},
+    {"id": "unsupported-query", "category": "unsupported", "query": "What was IFC's Mars colonization budget?", "expected_status": "not_found"},
+    {"id": "blank-query", "category": "validation", "query": "   "}
+  ]
+}

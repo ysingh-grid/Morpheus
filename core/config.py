@@ -5,7 +5,7 @@ import os
 from openai import OpenAI
 
 
-DEFAULT_MODEL = os.getenv("LLM_MODEL_NAME", "gemini-2.5-flash")
+DEFAULT_MODEL = os.getenv("LLM_MODEL_NAME", "gemini-3.5-flash-lite")
 
 llm_client = OpenAI(
     api_key=os.getenv("GEMINI_API_KEY"),

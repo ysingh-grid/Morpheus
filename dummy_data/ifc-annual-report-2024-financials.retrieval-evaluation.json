@@ -1,0 +1,2811 @@
+{
+  "benchmark": "IFC 2024 financials retrieval benchmark",
+  "top_k": 5,
+  "quality_metrics": {
+    "parent": {
+      "stage_one_rrf": {
+        "recall_at_1": 0.75,
+        "recall_at_k": 1.0,
+        "mrr": 0.8625,
+        "ndcg_at_k": 0.8977
+      },
+      "stage_two_reranked": {
+        "recall_at_1": 0.8,
+        "recall_at_k": 0.95,
+        "mrr": 0.875,
+        "ndcg_at_k": 0.8946
+      }
+    },
+    "table": {
+      "stage_one_rrf": {
+        "recall_at_1": 0.6667,
+        "recall_at_k": 1.0,
+        "mrr": 0.8333,
+        "ndcg_at_k": 0.877
+      },
+      "stage_two_reranked": {
+        "recall_at_1": 0.8333,
+        "recall_at_k": 1.0,
+        "mrr": 0.9167,
+        "ndcg_at_k": 0.9385
+      }
+    },
+    "figure": {
+      "stage_one_rrf": {
+        "recall_at_1": 0.875,
+        "recall_at_k": 1.0,
+        "mrr": 0.9062,
+        "ndcg_at_k": 0.9288
+      },
+      "stage_two_reranked": {
+        "recall_at_1": 0.75,
+        "recall_at_k": 0.875,
+        "mrr": 0.8125,
+        "ndcg_at_k": 0.8289
+      }
+    },
+    "confidence_decision_accuracy": 1.0
+  },
+  "latency_metrics_ms": {
+    "embedding": {
+      "mean_ms": 565.9,
+      "p50_ms": 524.14,
+      "p95_ms": 708.61
+    },
+    "sql_rrf_join": {
+      "mean_ms": 41.57,
+      "p50_ms": 42.58,
+      "p95_ms": 48.41
+    },
+    "flashrank": {
+      "mean_ms": 810.97,
+      "p50_ms": 836.06,
+      "p95_ms": 967.72
+    },
+    "end_to_end": {
+      "mean_ms": 1418.6,
+      "p50_ms": 1410.93,
+      "p95_ms": 1620.06
+    }
+  },
+  "cases": [
+    {
+      "id": "table-net-income",
+      "category": "table",
+      "query": "What was IFC's net income in FY24?",
+      "stage_one_rrf": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-15",
+          "ifc-annual-report-2024-financials-parent-0",
+          "ifc-annual-report-2024-financials-parent-16",
+          "ifc-annual-report-2024-financials-parent-2",
+          "ifc-annual-report-2024-financials-parent-14"
+        ],
+        "table_ids": [
+          [
+            "table-025",
+            "table-026",
+            "table-027",
+            "table-028"
+          ],
+          [
+            "table-001",
+            "table-002"
+          ],
+          [
+            "table-029",
+            "table-030",
+            "table-031",
+            "table-032",
+            "table-033",
+            "table-034",
+            "table-035",
+            "table-036"
+          ],
+          [
+            "table-003",
+            "table-004",
+            "table-005"
+          ],
+          []
+        ],
+        "figure_ids": [
+          [
+            "figure-021",
+            "figure-022",
+            "figure-023",
+            "figure-024"
+          ],
+          [
+            "figure-001",
+            "figure-002"
+          ],
+          [
+            "figure-025"
+          ],
+          [
+            "figure-009"
+          ],
+          []
+        ],
+        "parent_rank": 2,
+        "table_rank": 2
+      },
+      "stage_two_reranked": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-0",
+          "ifc-annual-report-2024-financials-parent-7",
+          "ifc-annual-report-2024-financials-parent-1",
+          "ifc-annual-report-2024-financials-parent-13",
+          "ifc-annual-report-2024-financials-parent-4"
+        ],
+        "table_ids": [
+          [
+            "table-001",
+            "table-002"
+          ],
+          [
+            "table-016",
+            "table-017",
+            "table-018",
+            "table-019",
+            "table-020",
+            "table-021",
+            "table-022"
+          ],
+          [],
+          [
+            "table-024"
+          ],
+          [
+            "table-006",
+            "table-007",
+            "table-008",
+            "table-009",
+            "table-010",
+            "table-011",
+            "table-012",
+            "table-013"
+          ]
+        ],
+        "figure_ids": [
+          [
+            "figure-001",
+            "figure-002"
+          ],
+          [
+            "figure-015"
+          ],
+          [
+            "figure-003",
+            "figure-004",
+            "figure-005",
+            "figure-006",
+            "figure-007",
+            "figure-008"
+          ],
+          [],
+          [
+            "figure-011",
+            "figure-012"
+          ]
+        ],
+        "parent_rank": 1,
+        "table_rank": 1
+      },
+      "latency_ms": {
+        "embedding": 985.22,
+        "sql": 60.21,
+        "rerank": 1155.48,
+        "total": 2201.02
+      },
+      "confidence_decision": {
+        "status": "grounded",
+        "rrf_score": 0.04790709026563072,
+        "vector_distance": 0.21333818485146816,
+        "lexical_match": true,
+        "rrf_score_margin": 0.015384615384615385,
+        "reasons": []
+      }
+    },
+    {
+      "id": "table-income-designations",
+      "category": "table",
+      "query": "How is net income reconciled to income available for designations?",
+      "stage_one_rrf": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-2",
+          "ifc-annual-report-2024-financials-parent-24",
+          "ifc-annual-report-2024-financials-parent-8",
+          "ifc-annual-report-2024-financials-parent-0",
+          "ifc-annual-report-2024-financials-parent-31"
+        ],
+        "table_ids": [
+          [
+            "table-003",
+            "table-004",
+            "table-005"
+          ],
+          [],
+          [],
+          [
+            "table-001",
+            "table-002"
+          ],
+          [
+            "table-102",
+            "table-103",
+            "table-104",
+            "table-105",
+            "table-106",
+            "table-107",
+            "table-108",
+            "table-109",
+            "table-110",
+            "table-111",
+            "table-112",
+            "table-113",
+            "table-114",
+            "table-115"
+          ]
+        ],
+        "figure_ids": [
+          [
+            "figure-009"
+          ],
+          [],
+          [
+            "figure-016",
+            "figure-017"
+          ],
+          [
+            "figure-001",
+            "figure-002"
+          ],
+          []
+        ],
+        "parent_rank": 1,
+        "table_rank": 1
+      },
+      "stage_two_reranked": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-2",
+          "ifc-annual-report-2024-financials-parent-0",
+          "ifc-annual-report-2024-financials-parent-1",
+          "ifc-annual-report-2024-financials-parent-8",
+          "ifc-annual-report-2024-financials-parent-24"
+        ],
+        "table_ids": [
+          [
+            "table-003",
+            "table-004",
+            "table-005"
+          ],
+          [
+            "table-001",
+            "table-002"
+          ],
+          [],
+          [],
+          []
+        ],
+        "figure_ids": [
+          [
+            "figure-009"
+          ],
+          [
+            "figure-001",
+            "figure-002"
+          ],
+          [
+            "figure-003",
+            "figure-004",
+            "figure-005",
+            "figure-006",
+            "figure-007",
+            "figure-008"
+          ],
+          [
+            "figure-016",
+            "figure-017"
+          ],
+          []
+        ],
+        "parent_rank": 1,
+        "table_rank": 1
+      },
+      "latency_ms": {
+        "embedding": 524.14,
+        "sql": 40.78,
+        "rerank": 848.63,
+        "total": 1413.68
+      },
+      "confidence_decision": {
+        "status": "clarification_needed",
+        "rrf_score": 0.03201844262295082,
+        "vector_distance": 0.40695463609522475,
+        "lexical_match": true,
+        "rrf_score_margin": 0.015625,
+        "reasons": [
+          "Vector distance 0.40695 is weaker than 0.40000."
+        ]
+      }
+    },
+    {
+      "id": "table-disbursements",
+      "category": "table",
+      "query": "What were IFC's investment portfolio disbursements?",
+      "stage_one_rrf": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-4",
+          "ifc-annual-report-2024-financials-parent-2",
+          "ifc-annual-report-2024-financials-parent-1",
+          "ifc-annual-report-2024-financials-parent-10",
+          "ifc-annual-report-2024-financials-parent-7"
+        ],
+        "table_ids": [
+          [
+            "table-006",
+            "table-007",
+            "table-008",
+            "table-009",
+            "table-010",
+            "table-011",
+            "table-012",
+            "table-013"
+          ],
+          [
+            "table-003",
+            "table-004",
+            "table-005"
+          ],
+          [],
+          [
+            "table-023"
+          ],
+          [
+            "table-016",
+            "table-017",
+            "table-018",
+            "table-019",
+            "table-020",
+            "table-021",
+            "table-022"
+          ]
+        ],
+        "figure_ids": [
+          [
+            "figure-011",
+            "figure-012"
+          ],
+          [
+            "figure-009"
+          ],
+          [
+            "figure-003",
+            "figure-004",
+            "figure-005",
+            "figure-006",
+            "figure-007",
+            "figure-008"
+          ],
+          [
+            "figure-020"
+          ],
+          [
+            "figure-015"
+          ]
+        ],
+        "parent_rank": 1,
+        "table_rank": 1
+      },
+      "stage_two_reranked": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-4",
+          "ifc-annual-report-2024-financials-parent-1",
+          "ifc-annual-report-2024-financials-parent-28",
+          "ifc-annual-report-2024-financials-parent-7",
+          "ifc-annual-report-2024-financials-parent-2"
+        ],
+        "table_ids": [
+          [
+            "table-006",
+            "table-007",
+            "table-008",
+            "table-009",
+            "table-010",
+            "table-011",
+            "table-012",
+            "table-013"
+          ],
+          [],
+          [
+            "table-054",
+            "table-055",
+            "table-056",
+            "table-057",
+            "table-058",
+            "table-059",
+            "table-060",
+            "table-061",
+            "table-062",
+            "table-063",
+            "table-064",
+            "table-065",
+            "table-066",
+            "table-067",
+            "table-068"
+          ],
+          [
+            "table-016",
+            "table-017",
+            "table-018",
+            "table-019",
+            "table-020",
+            "table-021",
+            "table-022"
+          ],
+          [
+            "table-003",
+            "table-004",
+            "table-005"
+          ]
+        ],
+        "figure_ids": [
+          [
+            "figure-011",
+            "figure-012"
+          ],
+          [
+            "figure-003",
+            "figure-004",
+            "figure-005",
+            "figure-006",
+            "figure-007",
+            "figure-008"
+          ],
+          [],
+          [
+            "figure-015"
+          ],
+          [
+            "figure-009"
+          ]
+        ],
+        "parent_rank": 1,
+        "table_rank": 1
+      },
+      "latency_ms": {
+        "embedding": 708.61,
+        "sql": 43.19,
+        "rerank": 854.92,
+        "total": 1606.89
+      },
+      "confidence_decision": {
+        "status": "grounded",
+        "rrf_score": 0.04891591750396616,
+        "vector_distance": 0.23127226737168027,
+        "lexical_match": true,
+        "rrf_score_margin": 0.016913869372885765,
+        "reasons": []
+      }
+    },
+    {
+      "id": "table-amc-funds",
+      "category": "table",
+      "query": "What are IFC AMC Funds?",
+      "stage_one_rrf": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-27",
+          "ifc-annual-report-2024-financials-parent-5",
+          "ifc-annual-report-2024-financials-parent-18",
+          "ifc-annual-report-2024-financials-parent-14",
+          "ifc-annual-report-2024-financials-parent-30"
+        ],
+        "table_ids": [
+          [
+            "table-049",
+            "table-050",
+            "table-051",
+            "table-052",
+            "table-053"
+          ],
+          [
+            "table-014",
+            "table-015"
+          ],
+          [
+            "table-037",
+            "table-038",
+            "table-039"
+          ],
+          [],
+          [
+            "table-088",
+            "table-089",
+            "table-090",
+            "table-091",
+            "table-092",
+            "table-093",
+            "table-094",
+            "table-095",
+            "table-096",
+            "table-097",
+            "table-098",
+            "table-099",
+            "table-100",
+            "table-101"
+          ]
+        ],
+        "figure_ids": [
+          [],
+          [
+            "figure-013"
+          ],
+          [
+            "figure-026",
+            "figure-027",
+            "figure-028",
+            "figure-029",
+            "figure-030",
+            "figure-031"
+          ],
+          [],
+          []
+        ],
+        "parent_rank": 2,
+        "table_rank": 2
+      },
+      "stage_two_reranked": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-27",
+          "ifc-annual-report-2024-financials-parent-5",
+          "ifc-annual-report-2024-financials-parent-14",
+          "ifc-annual-report-2024-financials-parent-18",
+          "ifc-annual-report-2024-financials-parent-30"
+        ],
+        "table_ids": [
+          [
+            "table-049",
+            "table-050",
+            "table-051",
+            "table-052",
+            "table-053"
+          ],
+          [
+            "table-014",
+            "table-015"
+          ],
+          [],
+          [
+            "table-037",
+            "table-038",
+            "table-039"
+          ],
+          [
+            "table-088",
+            "table-089",
+            "table-090",
+            "table-091",
+            "table-092",
+            "table-093",
+            "table-094",
+            "table-095",
+            "table-096",
+            "table-097",
+            "table-098",
+            "table-099",
+            "table-100",
+            "table-101"
+          ]
+        ],
+        "figure_ids": [
+          [],
+          [
+            "figure-013"
+          ],
+          [],
+          [
+            "figure-026",
+            "figure-027",
+            "figure-028",
+            "figure-029",
+            "figure-030",
+            "figure-031"
+          ],
+          []
+        ],
+        "parent_rank": 2,
+        "table_rank": 2
+      },
+      "latency_ms": {
+        "embedding": 639.69,
+        "sql": 39.44,
+        "rerank": 940.81,
+        "total": 1620.06
+      },
+      "confidence_decision": {
+        "status": "clarification_needed",
+        "rrf_score": 0.04865990111891751,
+        "vector_distance": 0.30872559865883376,
+        "lexical_match": true,
+        "rrf_score_margin": 8.39397983766043e-06,
+        "reasons": [
+          "RRF score margin 0.00001 is below 0.00020."
+        ]
+      }
+    },
+    {
+      "id": "table-advisory-region",
+      "category": "table",
+      "query": "What were IFC Advisory Services program expenditures by region?",
+      "stage_one_rrf": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-7",
+          "ifc-annual-report-2024-financials-parent-6",
+          "ifc-annual-report-2024-financials-parent-4",
+          "ifc-annual-report-2024-financials-parent-5",
+          "ifc-annual-report-2024-financials-parent-34"
+        ],
+        "table_ids": [
+          [
+            "table-016",
+            "table-017",
+            "table-018",
+            "table-019",
+            "table-020",
+            "table-021",
+            "table-022"
+          ],
+          [],
+          [
+            "table-006",
+            "table-007",
+            "table-008",
+            "table-009",
+            "table-010",
+            "table-011",
+            "table-012",
+            "table-013"
+          ],
+          [
+            "table-014",
+            "table-015"
+          ],
+          [
+            "table-136",
+            "table-137",
+            "table-138",
+            "table-139"
+          ]
+        ],
+        "figure_ids": [
+          [
+            "figure-015"
+          ],
+          [
+            "figure-014"
+          ],
+          [
+            "figure-011",
+            "figure-012"
+          ],
+          [
+            "figure-013"
+          ],
+          []
+        ],
+        "parent_rank": 1,
+        "table_rank": 1
+      },
+      "stage_two_reranked": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-7",
+          "ifc-annual-report-2024-financials-parent-6",
+          "ifc-annual-report-2024-financials-parent-31",
+          "ifc-annual-report-2024-financials-parent-4",
+          "ifc-annual-report-2024-financials-parent-25"
+        ],
+        "table_ids": [
+          [
+            "table-016",
+            "table-017",
+            "table-018",
+            "table-019",
+            "table-020",
+            "table-021",
+            "table-022"
+          ],
+          [],
+          [
+            "table-102",
+            "table-103",
+            "table-104",
+            "table-105",
+            "table-106",
+            "table-107",
+            "table-108",
+            "table-109",
+            "table-110",
+            "table-111",
+            "table-112",
+            "table-113",
+            "table-114",
+            "table-115"
+          ],
+          [
+            "table-006",
+            "table-007",
+            "table-008",
+            "table-009",
+            "table-010",
+            "table-011",
+            "table-012",
+            "table-013"
+          ],
+          []
+        ],
+        "figure_ids": [
+          [
+            "figure-015"
+          ],
+          [
+            "figure-014"
+          ],
+          [],
+          [
+            "figure-011",
+            "figure-012"
+          ],
+          []
+        ],
+        "parent_rank": 1,
+        "table_rank": 1
+      },
+      "latency_ms": {
+        "embedding": 510.32,
+        "sql": 45.6,
+        "rerank": 849.46,
+        "total": 1405.48
+      },
+      "confidence_decision": {
+        "status": "grounded",
+        "rrf_score": 0.04918032786885246,
+        "vector_distance": 0.3014837618041577,
+        "lexical_match": true,
+        "rrf_score_margin": 0.03305129561078794,
+        "reasons": []
+      }
+    },
+    {
+      "id": "table-debt-risk",
+      "category": "table",
+      "query": "What are IFC's debt portfolio credit risk indicators?",
+      "stage_one_rrf": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-10",
+          "ifc-annual-report-2024-financials-parent-22",
+          "ifc-annual-report-2024-financials-parent-25",
+          "ifc-annual-report-2024-financials-parent-14",
+          "ifc-annual-report-2024-financials-parent-28"
+        ],
+        "table_ids": [
+          [
+            "table-023"
+          ],
+          [],
+          [],
+          [],
+          [
+            "table-054",
+            "table-055",
+            "table-056",
+            "table-057",
+            "table-058",
+            "table-059",
+            "table-060",
+            "table-061",
+            "table-062",
+            "table-063",
+            "table-064",
+            "table-065",
+            "table-066",
+            "table-067",
+            "table-068"
+          ]
+        ],
+        "figure_ids": [
+          [
+            "figure-020"
+          ],
+          [],
+          [],
+          [],
+          []
+        ],
+        "parent_rank": 1,
+        "table_rank": 1
+      },
+      "stage_two_reranked": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-10",
+          "ifc-annual-report-2024-financials-parent-14",
+          "ifc-annual-report-2024-financials-parent-22",
+          "ifc-annual-report-2024-financials-parent-25",
+          "ifc-annual-report-2024-financials-parent-29"
+        ],
+        "table_ids": [
+          [
+            "table-023"
+          ],
+          [],
+          [],
+          [],
+          [
+            "table-069",
+            "table-070",
+            "table-071",
+            "table-072",
+            "table-073",
+            "table-074",
+            "table-075",
+            "table-076",
+            "table-077",
+            "table-078",
+            "table-079",
+            "table-080",
+            "table-081",
+            "table-082",
+            "table-083",
+            "table-084",
+            "table-085",
+            "table-086",
+            "table-087"
+          ]
+        ],
+        "figure_ids": [
+          [
+            "figure-020"
+          ],
+          [],
+          [],
+          [],
+          []
+        ],
+        "parent_rank": 1,
+        "table_rank": 1
+      },
+      "latency_ms": {
+        "embedding": 582.41,
+        "sql": 43.1,
+        "rerank": 785.14,
+        "total": 1410.93
+      },
+      "confidence_decision": {
+        "status": "grounded",
+        "rrf_score": 0.04918032786885246,
+        "vector_distance": 0.24715884342538985,
+        "lexical_match": true,
+        "rrf_score_margin": 0.03305129561078794,
+        "reasons": []
+      }
+    },
+    {
+      "id": "table-income-components",
+      "category": "table",
+      "query": "Which main elements make up net income and other comprehensive income?",
+      "stage_one_rrf": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-16",
+          "ifc-annual-report-2024-financials-parent-15",
+          "ifc-annual-report-2024-financials-parent-31",
+          "ifc-annual-report-2024-financials-parent-35",
+          "ifc-annual-report-2024-financials-parent-25"
+        ],
+        "table_ids": [
+          [
+            "table-029",
+            "table-030",
+            "table-031",
+            "table-032",
+            "table-033",
+            "table-034",
+            "table-035",
+            "table-036"
+          ],
+          [
+            "table-025",
+            "table-026",
+            "table-027",
+            "table-028"
+          ],
+          [
+            "table-102",
+            "table-103",
+            "table-104",
+            "table-105",
+            "table-106",
+            "table-107",
+            "table-108",
+            "table-109",
+            "table-110",
+            "table-111",
+            "table-112",
+            "table-113",
+            "table-114",
+            "table-115"
+          ],
+          [
+            "table-140",
+            "table-141",
+            "table-142",
+            "table-143",
+            "table-144",
+            "table-145"
+          ],
+          []
+        ],
+        "figure_ids": [
+          [
+            "figure-025"
+          ],
+          [
+            "figure-021",
+            "figure-022",
+            "figure-023",
+            "figure-024"
+          ],
+          [],
+          [],
+          []
+        ],
+        "parent_rank": 2,
+        "table_rank": 2
+      },
+      "stage_two_reranked": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-15",
+          "ifc-annual-report-2024-financials-parent-16",
+          "ifc-annual-report-2024-financials-parent-35",
+          "ifc-annual-report-2024-financials-parent-14",
+          "ifc-annual-report-2024-financials-parent-24"
+        ],
+        "table_ids": [
+          [
+            "table-025",
+            "table-026",
+            "table-027",
+            "table-028"
+          ],
+          [
+            "table-029",
+            "table-030",
+            "table-031",
+            "table-032",
+            "table-033",
+            "table-034",
+            "table-035",
+            "table-036"
+          ],
+          [
+            "table-140",
+            "table-141",
+            "table-142",
+            "table-143",
+            "table-144",
+            "table-145"
+          ],
+          [],
+          []
+        ],
+        "figure_ids": [
+          [
+            "figure-021",
+            "figure-022",
+            "figure-023",
+            "figure-024"
+          ],
+          [
+            "figure-025"
+          ],
+          [],
+          [],
+          []
+        ],
+        "parent_rank": 1,
+        "table_rank": 1
+      },
+      "latency_ms": {
+        "embedding": 464.13,
+        "sql": 32.25,
+        "rerank": 801.88,
+        "total": 1298.36
+      },
+      "confidence_decision": {
+        "status": "grounded",
+        "rrf_score": 0.01639344262295082,
+        "vector_distance": 0.35481187314344365,
+        "lexical_match": false,
+        "rrf_score_margin": 0.00026441036488630354,
+        "reasons": []
+      }
+    },
+    {
+      "id": "table-equity-income",
+      "category": "table",
+      "query": "What income came from equity investments and associated derivatives?",
+      "stage_one_rrf": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-30",
+          "ifc-annual-report-2024-financials-parent-16",
+          "ifc-annual-report-2024-financials-parent-23",
+          "ifc-annual-report-2024-financials-parent-31",
+          "ifc-annual-report-2024-financials-parent-24"
+        ],
+        "table_ids": [
+          [
+            "table-088",
+            "table-089",
+            "table-090",
+            "table-091",
+            "table-092",
+            "table-093",
+            "table-094",
+            "table-095",
+            "table-096",
+            "table-097",
+            "table-098",
+            "table-099",
+            "table-100",
+            "table-101"
+          ],
+          [
+            "table-029",
+            "table-030",
+            "table-031",
+            "table-032",
+            "table-033",
+            "table-034",
+            "table-035",
+            "table-036"
+          ],
+          [],
+          [
+            "table-102",
+            "table-103",
+            "table-104",
+            "table-105",
+            "table-106",
+            "table-107",
+            "table-108",
+            "table-109",
+            "table-110",
+            "table-111",
+            "table-112",
+            "table-113",
+            "table-114",
+            "table-115"
+          ],
+          []
+        ],
+        "figure_ids": [
+          [],
+          [
+            "figure-025"
+          ],
+          [],
+          [],
+          []
+        ],
+        "parent_rank": 2,
+        "table_rank": 2
+      },
+      "stage_two_reranked": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-16",
+          "ifc-annual-report-2024-financials-parent-30",
+          "ifc-annual-report-2024-financials-parent-23",
+          "ifc-annual-report-2024-financials-parent-28",
+          "ifc-annual-report-2024-financials-parent-7"
+        ],
+        "table_ids": [
+          [
+            "table-029",
+            "table-030",
+            "table-031",
+            "table-032",
+            "table-033",
+            "table-034",
+            "table-035",
+            "table-036"
+          ],
+          [
+            "table-088",
+            "table-089",
+            "table-090",
+            "table-091",
+            "table-092",
+            "table-093",
+            "table-094",
+            "table-095",
+            "table-096",
+            "table-097",
+            "table-098",
+            "table-099",
+            "table-100",
+            "table-101"
+          ],
+          [],
+          [
+            "table-054",
+            "table-055",
+            "table-056",
+            "table-057",
+            "table-058",
+            "table-059",
+            "table-060",
+            "table-061",
+            "table-062",
+            "table-063",
+            "table-064",
+            "table-065",
+            "table-066",
+            "table-067",
+            "table-068"
+          ],
+          [
+            "table-016",
+            "table-017",
+            "table-018",
+            "table-019",
+            "table-020",
+            "table-021",
+            "table-022"
+          ]
+        ],
+        "figure_ids": [
+          [
+            "figure-025"
+          ],
+          [],
+          [],
+          [],
+          [
+            "figure-015"
+          ]
+        ],
+        "parent_rank": 1,
+        "table_rank": 1
+      },
+      "latency_ms": {
+        "embedding": 596.57,
+        "sql": 42.32,
+        "rerank": 836.06,
+        "total": 1475.22
+      },
+      "confidence_decision": {
+        "status": "grounded",
+        "rrf_score": 0.01639344262295082,
+        "vector_distance": 0.317905111314156,
+        "lexical_match": false,
+        "rrf_score_margin": 0.00026441036488630354,
+        "reasons": []
+      }
+    },
+    {
+      "id": "table-cash-flow",
+      "category": "table",
+      "query": "What information is in the consolidated statement of cash flows?",
+      "stage_one_rrf": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-20",
+          "ifc-annual-report-2024-financials-parent-32",
+          "ifc-annual-report-2024-financials-parent-27",
+          "ifc-annual-report-2024-financials-parent-21",
+          "ifc-annual-report-2024-financials-parent-26"
+        ],
+        "table_ids": [
+          [
+            "table-040",
+            "table-041",
+            "table-042",
+            "table-043",
+            "table-044",
+            "table-045",
+            "table-046",
+            "table-047"
+          ],
+          [
+            "table-116",
+            "table-117",
+            "table-118",
+            "table-119",
+            "table-120",
+            "table-121",
+            "table-122",
+            "table-123",
+            "table-124"
+          ],
+          [
+            "table-049",
+            "table-050",
+            "table-051",
+            "table-052",
+            "table-053"
+          ],
+          [],
+          [
+            "table-048"
+          ]
+        ],
+        "figure_ids": [
+          [
+            "figure-033"
+          ],
+          [],
+          [],
+          [],
+          []
+        ],
+        "parent_rank": 1,
+        "table_rank": 1
+      },
+      "stage_two_reranked": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-20",
+          "ifc-annual-report-2024-financials-parent-24",
+          "ifc-annual-report-2024-financials-parent-26",
+          "ifc-annual-report-2024-financials-parent-23",
+          "ifc-annual-report-2024-financials-parent-27"
+        ],
+        "table_ids": [
+          [
+            "table-040",
+            "table-041",
+            "table-042",
+            "table-043",
+            "table-044",
+            "table-045",
+            "table-046",
+            "table-047"
+          ],
+          [],
+          [
+            "table-048"
+          ],
+          [],
+          [
+            "table-049",
+            "table-050",
+            "table-051",
+            "table-052",
+            "table-053"
+          ]
+        ],
+        "figure_ids": [
+          [
+            "figure-033"
+          ],
+          [],
+          [],
+          [],
+          []
+        ],
+        "parent_rank": 1,
+        "table_rank": 1
+      },
+      "latency_ms": {
+        "embedding": 467.77,
+        "sql": 48.41,
+        "rerank": 811.41,
+        "total": 1327.73
+      },
+      "confidence_decision": {
+        "status": "grounded",
+        "rrf_score": 0.03278688524590164,
+        "vector_distance": 0.36685019196364776,
+        "lexical_match": true,
+        "rrf_score_margin": 0.0029592228508508217,
+        "reasons": []
+      }
+    },
+    {
+      "id": "table-liquid-assets",
+      "category": "table",
+      "query": "What is IFC's liquid asset portfolio composition?",
+      "stage_one_rrf": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-27",
+          "ifc-annual-report-2024-financials-parent-7",
+          "ifc-annual-report-2024-financials-parent-11",
+          "ifc-annual-report-2024-financials-parent-25",
+          "ifc-annual-report-2024-financials-parent-1"
+        ],
+        "table_ids": [
+          [
+            "table-049",
+            "table-050",
+            "table-051",
+            "table-052",
+            "table-053"
+          ],
+          [
+            "table-016",
+            "table-017",
+            "table-018",
+            "table-019",
+            "table-020",
+            "table-021",
+            "table-022"
+          ],
+          [],
+          [],
+          []
+        ],
+        "figure_ids": [
+          [],
+          [
+            "figure-015"
+          ],
+          [],
+          [],
+          [
+            "figure-003",
+            "figure-004",
+            "figure-005",
+            "figure-006",
+            "figure-007",
+            "figure-008"
+          ]
+        ],
+        "parent_rank": 1,
+        "table_rank": 1
+      },
+      "stage_two_reranked": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-27",
+          "ifc-annual-report-2024-financials-parent-25",
+          "ifc-annual-report-2024-financials-parent-7",
+          "ifc-annual-report-2024-financials-parent-14",
+          "ifc-annual-report-2024-financials-parent-11"
+        ],
+        "table_ids": [
+          [
+            "table-049",
+            "table-050",
+            "table-051",
+            "table-052",
+            "table-053"
+          ],
+          [],
+          [
+            "table-016",
+            "table-017",
+            "table-018",
+            "table-019",
+            "table-020",
+            "table-021",
+            "table-022"
+          ],
+          [],
+          []
+        ],
+        "figure_ids": [
+          [],
+          [],
+          [
+            "figure-015"
+          ],
+          [],
+          []
+        ],
+        "parent_rank": 1,
+        "table_rank": 1
+      },
+      "latency_ms": {
+        "embedding": 502.06,
+        "sql": 34.91,
+        "rerank": 784.41,
+        "total": 1321.58
+      },
+      "confidence_decision": {
+        "status": "grounded",
+        "rrf_score": 0.04865990111891751,
+        "vector_distance": 0.24765256811425085,
+        "lexical_match": true,
+        "rrf_score_margin": 0.032266458495966696,
+        "reasons": []
+      }
+    },
+    {
+      "id": "figure-income-designations",
+      "category": "figure",
+      "query": "Which chart shows income available for designations and net income across FY22 to FY24?",
+      "stage_one_rrf": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-10",
+          "ifc-annual-report-2024-financials-parent-1",
+          "ifc-annual-report-2024-financials-parent-8",
+          "ifc-annual-report-2024-financials-parent-0",
+          "ifc-annual-report-2024-financials-parent-24"
+        ],
+        "table_ids": [
+          [
+            "table-023"
+          ],
+          [],
+          [],
+          [
+            "table-001",
+            "table-002"
+          ],
+          []
+        ],
+        "figure_ids": [
+          [
+            "figure-020"
+          ],
+          [
+            "figure-003",
+            "figure-004",
+            "figure-005",
+            "figure-006",
+            "figure-007",
+            "figure-008"
+          ],
+          [
+            "figure-016",
+            "figure-017"
+          ],
+          [
+            "figure-001",
+            "figure-002"
+          ],
+          []
+        ],
+        "parent_rank": 4,
+        "figure_rank": 4
+      },
+      "stage_two_reranked": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-1",
+          "ifc-annual-report-2024-financials-parent-0",
+          "ifc-annual-report-2024-financials-parent-8",
+          "ifc-annual-report-2024-financials-parent-2",
+          "ifc-annual-report-2024-financials-parent-10"
+        ],
+        "table_ids": [
+          [],
+          [
+            "table-001",
+            "table-002"
+          ],
+          [],
+          [
+            "table-003",
+            "table-004",
+            "table-005"
+          ],
+          [
+            "table-023"
+          ]
+        ],
+        "figure_ids": [
+          [
+            "figure-003",
+            "figure-004",
+            "figure-005",
+            "figure-006",
+            "figure-007",
+            "figure-008"
+          ],
+          [
+            "figure-001",
+            "figure-002"
+          ],
+          [
+            "figure-016",
+            "figure-017"
+          ],
+          [
+            "figure-009"
+          ],
+          [
+            "figure-020"
+          ]
+        ],
+        "parent_rank": 2,
+        "figure_rank": 2
+      },
+      "latency_ms": {
+        "embedding": 435.85,
+        "sql": 43.96,
+        "rerank": 814.28,
+        "total": 1294.37
+      },
+      "confidence_decision": {
+        "status": "grounded",
+        "rrf_score": 0.01639344262295082,
+        "vector_distance": 0.33376558128274725,
+        "lexical_match": false,
+        "rrf_score_margin": 0.00026441036488630354,
+        "reasons": []
+      }
+    },
+    {
+      "id": "figure-commitments",
+      "category": "figure",
+      "query": "Which figure compares LTF commitments and STF commitments from FY20 to FY24?",
+      "stage_one_rrf": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-1",
+          "ifc-annual-report-2024-financials-parent-10",
+          "ifc-annual-report-2024-financials-parent-15",
+          "ifc-annual-report-2024-financials-parent-5",
+          "ifc-annual-report-2024-financials-parent-30"
+        ],
+        "table_ids": [
+          [],
+          [
+            "table-023"
+          ],
+          [
+            "table-025",
+            "table-026",
+            "table-027",
+            "table-028"
+          ],
+          [
+            "table-014",
+            "table-015"
+          ],
+          [
+            "table-088",
+            "table-089",
+            "table-090",
+            "table-091",
+            "table-092",
+            "table-093",
+            "table-094",
+            "table-095",
+            "table-096",
+            "table-097",
+            "table-098",
+            "table-099",
+            "table-100",
+            "table-101"
+          ]
+        ],
+        "figure_ids": [
+          [
+            "figure-003",
+            "figure-004",
+            "figure-005",
+            "figure-006",
+            "figure-007",
+            "figure-008"
+          ],
+          [
+            "figure-020"
+          ],
+          [
+            "figure-021",
+            "figure-022",
+            "figure-023",
+            "figure-024"
+          ],
+          [
+            "figure-013"
+          ],
+          []
+        ],
+        "parent_rank": 1,
+        "figure_rank": 1
+      },
+      "stage_two_reranked": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-1",
+          "ifc-annual-report-2024-financials-parent-0",
+          "ifc-annual-report-2024-financials-parent-10",
+          "ifc-annual-report-2024-financials-parent-4",
+          "ifc-annual-report-2024-financials-parent-16"
+        ],
+        "table_ids": [
+          [],
+          [
+            "table-001",
+            "table-002"
+          ],
+          [
+            "table-023"
+          ],
+          [
+            "table-006",
+            "table-007",
+            "table-008",
+            "table-009",
+            "table-010",
+            "table-011",
+            "table-012",
+            "table-013"
+          ],
+          [
+            "table-029",
+            "table-030",
+            "table-031",
+            "table-032",
+            "table-033",
+            "table-034",
+            "table-035",
+            "table-036"
+          ]
+        ],
+        "figure_ids": [
+          [
+            "figure-003",
+            "figure-004",
+            "figure-005",
+            "figure-006",
+            "figure-007",
+            "figure-008"
+          ],
+          [
+            "figure-001",
+            "figure-002"
+          ],
+          [
+            "figure-020"
+          ],
+          [
+            "figure-011",
+            "figure-012"
+          ],
+          [
+            "figure-025"
+          ]
+        ],
+        "parent_rank": 1,
+        "figure_rank": 1
+      },
+      "latency_ms": {
+        "embedding": 546.16,
+        "sql": 43.39,
+        "rerank": 879.49,
+        "total": 1469.16
+      },
+      "confidence_decision": {
+        "status": "grounded",
+        "rrf_score": 0.03278688524590164,
+        "vector_distance": 0.27184023319899386,
+        "lexical_match": true,
+        "rrf_score_margin": 0.016657852987837122,
+        "reasons": []
+      }
+    },
+    {
+      "id": "figure-portfolio-management",
+      "category": "figure",
+      "query": "What diagram depicts Investment Portfolio Management?",
+      "stage_one_rrf": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-3",
+          "ifc-annual-report-2024-financials-parent-9",
+          "ifc-annual-report-2024-financials-parent-8",
+          "ifc-annual-report-2024-financials-parent-10",
+          "ifc-annual-report-2024-financials-parent-15"
+        ],
+        "table_ids": [
+          [],
+          [],
+          [],
+          [
+            "table-023"
+          ],
+          [
+            "table-025",
+            "table-026",
+            "table-027",
+            "table-028"
+          ]
+        ],
+        "figure_ids": [
+          [
+            "figure-010"
+          ],
+          [
+            "figure-018",
+            "figure-019"
+          ],
+          [
+            "figure-016",
+            "figure-017"
+          ],
+          [
+            "figure-020"
+          ],
+          [
+            "figure-021",
+            "figure-022",
+            "figure-023",
+            "figure-024"
+          ]
+        ],
+        "parent_rank": 1,
+        "figure_rank": 1
+      },
+      "stage_two_reranked": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-3",
+          "ifc-annual-report-2024-financials-parent-9",
+          "ifc-annual-report-2024-financials-parent-10",
+          "ifc-annual-report-2024-financials-parent-4",
+          "ifc-annual-report-2024-financials-parent-2"
+        ],
+        "table_ids": [
+          [],
+          [],
+          [
+            "table-023"
+          ],
+          [
+            "table-006",
+            "table-007",
+            "table-008",
+            "table-009",
+            "table-010",
+            "table-011",
+            "table-012",
+            "table-013"
+          ],
+          [
+            "table-003",
+            "table-004",
+            "table-005"
+          ]
+        ],
+        "figure_ids": [
+          [
+            "figure-010"
+          ],
+          [
+            "figure-018",
+            "figure-019"
+          ],
+          [
+            "figure-020"
+          ],
+          [
+            "figure-011",
+            "figure-012"
+          ],
+          [
+            "figure-009"
+          ]
+        ],
+        "parent_rank": 1,
+        "figure_rank": 1
+      },
+      "latency_ms": {
+        "embedding": 519.0,
+        "sql": 33.25,
+        "rerank": 711.88,
+        "total": 1264.39
+      },
+      "confidence_decision": {
+        "status": "grounded",
+        "rrf_score": 0.01639344262295082,
+        "vector_distance": 0.3763416041395493,
+        "lexical_match": false,
+        "rrf_score_margin": 0.00026441036488630354,
+        "reasons": []
+      }
+    },
+    {
+      "id": "figure-advisory-organization",
+      "category": "figure",
+      "query": "Which figure depicts the Upstream and Advisory Services organization?",
+      "stage_one_rrf": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-6",
+          "ifc-annual-report-2024-financials-parent-34",
+          "ifc-annual-report-2024-financials-parent-5",
+          "ifc-annual-report-2024-financials-parent-8",
+          "ifc-annual-report-2024-financials-parent-33"
+        ],
+        "table_ids": [
+          [],
+          [
+            "table-136",
+            "table-137",
+            "table-138",
+            "table-139"
+          ],
+          [
+            "table-014",
+            "table-015"
+          ],
+          [],
+          [
+            "table-125",
+            "table-126",
+            "table-127",
+            "table-128",
+            "table-129",
+            "table-130",
+            "table-131",
+            "table-132",
+            "table-133",
+            "table-134",
+            "table-135"
+          ]
+        ],
+        "figure_ids": [
+          [
+            "figure-014"
+          ],
+          [],
+          [
+            "figure-013"
+          ],
+          [
+            "figure-016",
+            "figure-017"
+          ],
+          []
+        ],
+        "parent_rank": 1,
+        "figure_rank": 1
+      },
+      "stage_two_reranked": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-6",
+          "ifc-annual-report-2024-financials-parent-34",
+          "ifc-annual-report-2024-financials-parent-33",
+          "ifc-annual-report-2024-financials-parent-5",
+          "ifc-annual-report-2024-financials-parent-7"
+        ],
+        "table_ids": [
+          [],
+          [
+            "table-136",
+            "table-137",
+            "table-138",
+            "table-139"
+          ],
+          [
+            "table-125",
+            "table-126",
+            "table-127",
+            "table-128",
+            "table-129",
+            "table-130",
+            "table-131",
+            "table-132",
+            "table-133",
+            "table-134",
+            "table-135"
+          ],
+          [
+            "table-014",
+            "table-015"
+          ],
+          [
+            "table-016",
+            "table-017",
+            "table-018",
+            "table-019",
+            "table-020",
+            "table-021",
+            "table-022"
+          ]
+        ],
+        "figure_ids": [
+          [
+            "figure-014"
+          ],
+          [],
+          [],
+          [
+            "figure-013"
+          ],
+          [
+            "figure-015"
+          ]
+        ],
+        "parent_rank": 1,
+        "figure_rank": 1
+      },
+      "latency_ms": {
+        "embedding": 571.47,
+        "sql": 41.22,
+        "rerank": 858.88,
+        "total": 1471.68
+      },
+      "confidence_decision": {
+        "status": "grounded",
+        "rrf_score": 0.01639344262295082,
+        "vector_distance": 0.3482098965142264,
+        "lexical_match": false,
+        "rrf_score_margin": 0.00026441036488630354,
+        "reasons": []
+      }
+    },
+    {
+      "id": "figure-debt-waterfall",
+      "category": "figure",
+      "query": "What figure shows changes in IFC debt from June 2023 to June 2024?",
+      "stage_one_rrf": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-7",
+          "ifc-annual-report-2024-financials-parent-5",
+          "ifc-annual-report-2024-financials-parent-30",
+          "ifc-annual-report-2024-financials-parent-4",
+          "ifc-annual-report-2024-financials-parent-15"
+        ],
+        "table_ids": [
+          [
+            "table-016",
+            "table-017",
+            "table-018",
+            "table-019",
+            "table-020",
+            "table-021",
+            "table-022"
+          ],
+          [
+            "table-014",
+            "table-015"
+          ],
+          [
+            "table-088",
+            "table-089",
+            "table-090",
+            "table-091",
+            "table-092",
+            "table-093",
+            "table-094",
+            "table-095",
+            "table-096",
+            "table-097",
+            "table-098",
+            "table-099",
+            "table-100",
+            "table-101"
+          ],
+          [
+            "table-006",
+            "table-007",
+            "table-008",
+            "table-009",
+            "table-010",
+            "table-011",
+            "table-012",
+            "table-013"
+          ],
+          [
+            "table-025",
+            "table-026",
+            "table-027",
+            "table-028"
+          ]
+        ],
+        "figure_ids": [
+          [
+            "figure-015"
+          ],
+          [
+            "figure-013"
+          ],
+          [],
+          [
+            "figure-011",
+            "figure-012"
+          ],
+          [
+            "figure-021",
+            "figure-022",
+            "figure-023",
+            "figure-024"
+          ]
+        ],
+        "parent_rank": 1,
+        "figure_rank": 1
+      },
+      "stage_two_reranked": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-5",
+          "ifc-annual-report-2024-financials-parent-15",
+          "ifc-annual-report-2024-financials-parent-4",
+          "ifc-annual-report-2024-financials-parent-1",
+          "ifc-annual-report-2024-financials-parent-30"
+        ],
+        "table_ids": [
+          [
+            "table-014",
+            "table-015"
+          ],
+          [
+            "table-025",
+            "table-026",
+            "table-027",
+            "table-028"
+          ],
+          [
+            "table-006",
+            "table-007",
+            "table-008",
+            "table-009",
+            "table-010",
+            "table-011",
+            "table-012",
+            "table-013"
+          ],
+          [],
+          [
+            "table-088",
+            "table-089",
+            "table-090",
+            "table-091",
+            "table-092",
+            "table-093",
+            "table-094",
+            "table-095",
+            "table-096",
+            "table-097",
+            "table-098",
+            "table-099",
+            "table-100",
+            "table-101"
+          ]
+        ],
+        "figure_ids": [
+          [
+            "figure-013"
+          ],
+          [
+            "figure-021",
+            "figure-022",
+            "figure-023",
+            "figure-024"
+          ],
+          [
+            "figure-011",
+            "figure-012"
+          ],
+          [
+            "figure-003",
+            "figure-004",
+            "figure-005",
+            "figure-006",
+            "figure-007",
+            "figure-008"
+          ],
+          []
+        ],
+        "parent_rank": null,
+        "figure_rank": null
+      },
+      "latency_ms": {
+        "embedding": 504.14,
+        "sql": 39.08,
+        "rerank": 843.22,
+        "total": 1386.62
+      },
+      "confidence_decision": {
+        "status": "grounded",
+        "rrf_score": 0.01639344262295082,
+        "vector_distance": 0.2096014799445045,
+        "lexical_match": false,
+        "rrf_score_margin": 0.00026441036488630354,
+        "reasons": []
+      }
+    },
+    {
+      "id": "figure-credit-risk",
+      "category": "figure",
+      "query": "Which chart presents IFC debt portfolio credit risk indicators?",
+      "stage_one_rrf": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-10",
+          "ifc-annual-report-2024-financials-parent-22",
+          "ifc-annual-report-2024-financials-parent-25",
+          "ifc-annual-report-2024-financials-parent-14",
+          "ifc-annual-report-2024-financials-parent-28"
+        ],
+        "table_ids": [
+          [
+            "table-023"
+          ],
+          [],
+          [],
+          [],
+          [
+            "table-054",
+            "table-055",
+            "table-056",
+            "table-057",
+            "table-058",
+            "table-059",
+            "table-060",
+            "table-061",
+            "table-062",
+            "table-063",
+            "table-064",
+            "table-065",
+            "table-066",
+            "table-067",
+            "table-068"
+          ]
+        ],
+        "figure_ids": [
+          [
+            "figure-020"
+          ],
+          [],
+          [],
+          [],
+          []
+        ],
+        "parent_rank": 1,
+        "figure_rank": 1
+      },
+      "stage_two_reranked": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-10",
+          "ifc-annual-report-2024-financials-parent-29",
+          "ifc-annual-report-2024-financials-parent-3",
+          "ifc-annual-report-2024-financials-parent-11",
+          "ifc-annual-report-2024-financials-parent-30"
+        ],
+        "table_ids": [
+          [
+            "table-023"
+          ],
+          [
+            "table-069",
+            "table-070",
+            "table-071",
+            "table-072",
+            "table-073",
+            "table-074",
+            "table-075",
+            "table-076",
+            "table-077",
+            "table-078",
+            "table-079",
+            "table-080",
+            "table-081",
+            "table-082",
+            "table-083",
+            "table-084",
+            "table-085",
+            "table-086",
+            "table-087"
+          ],
+          [],
+          [],
+          [
+            "table-088",
+            "table-089",
+            "table-090",
+            "table-091",
+            "table-092",
+            "table-093",
+            "table-094",
+            "table-095",
+            "table-096",
+            "table-097",
+            "table-098",
+            "table-099",
+            "table-100",
+            "table-101"
+          ]
+        ],
+        "figure_ids": [
+          [
+            "figure-020"
+          ],
+          [],
+          [
+            "figure-010"
+          ],
+          [],
+          []
+        ],
+        "parent_rank": 1,
+        "figure_rank": 1
+      },
+      "latency_ms": {
+        "embedding": 657.21,
+        "sql": 42.8,
+        "rerank": 807.81,
+        "total": 1507.96
+      },
+      "confidence_decision": {
+        "status": "grounded",
+        "rrf_score": 0.01639344262295082,
+        "vector_distance": 0.22921468418074986,
+        "lexical_match": false,
+        "rrf_score_margin": 0.00026441036488630354,
+        "reasons": []
+      }
+    },
+    {
+      "id": "figure-net-income-waterfall",
+      "category": "figure",
+      "query": "What chart breaks down the change in net income?",
+      "stage_one_rrf": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-15",
+          "ifc-annual-report-2024-financials-parent-4",
+          "ifc-annual-report-2024-financials-parent-10",
+          "ifc-annual-report-2024-financials-parent-8",
+          "ifc-annual-report-2024-financials-parent-5"
+        ],
+        "table_ids": [
+          [
+            "table-025",
+            "table-026",
+            "table-027",
+            "table-028"
+          ],
+          [
+            "table-006",
+            "table-007",
+            "table-008",
+            "table-009",
+            "table-010",
+            "table-011",
+            "table-012",
+            "table-013"
+          ],
+          [
+            "table-023"
+          ],
+          [],
+          [
+            "table-014",
+            "table-015"
+          ]
+        ],
+        "figure_ids": [
+          [
+            "figure-021",
+            "figure-022",
+            "figure-023",
+            "figure-024"
+          ],
+          [
+            "figure-011",
+            "figure-012"
+          ],
+          [
+            "figure-020"
+          ],
+          [
+            "figure-016",
+            "figure-017"
+          ],
+          [
+            "figure-013"
+          ]
+        ],
+        "parent_rank": 1,
+        "figure_rank": 1
+      },
+      "stage_two_reranked": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-15",
+          "ifc-annual-report-2024-financials-parent-4",
+          "ifc-annual-report-2024-financials-parent-5",
+          "ifc-annual-report-2024-financials-parent-0",
+          "ifc-annual-report-2024-financials-parent-2"
+        ],
+        "table_ids": [
+          [
+            "table-025",
+            "table-026",
+            "table-027",
+            "table-028"
+          ],
+          [
+            "table-006",
+            "table-007",
+            "table-008",
+            "table-009",
+            "table-010",
+            "table-011",
+            "table-012",
+            "table-013"
+          ],
+          [
+            "table-014",
+            "table-015"
+          ],
+          [
+            "table-001",
+            "table-002"
+          ],
+          [
+            "table-003",
+            "table-004",
+            "table-005"
+          ]
+        ],
+        "figure_ids": [
+          [
+            "figure-021",
+            "figure-022",
+            "figure-023",
+            "figure-024"
+          ],
+          [
+            "figure-011",
+            "figure-012"
+          ],
+          [
+            "figure-013"
+          ],
+          [
+            "figure-001",
+            "figure-002"
+          ],
+          [
+            "figure-009"
+          ]
+        ],
+        "parent_rank": 1,
+        "figure_rank": 1
+      },
+      "latency_ms": {
+        "embedding": 506.13,
+        "sql": 45.54,
+        "rerank": 748.96,
+        "total": 1300.76
+      },
+      "confidence_decision": {
+        "status": "grounded",
+        "rrf_score": 0.01639344262295082,
+        "vector_distance": 0.33335375072483353,
+        "lexical_match": false,
+        "rrf_score_margin": 0.00026441036488630354,
+        "reasons": []
+      }
+    },
+    {
+      "id": "figure-board-structure",
+      "category": "figure",
+      "query": "What figure shows the IFC Board Structure?",
+      "stage_one_rrf": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-16",
+          "ifc-annual-report-2024-financials-parent-8",
+          "ifc-annual-report-2024-financials-parent-17",
+          "ifc-annual-report-2024-financials-parent-9",
+          "ifc-annual-report-2024-financials-parent-18"
+        ],
+        "table_ids": [
+          [
+            "table-029",
+            "table-030",
+            "table-031",
+            "table-032",
+            "table-033",
+            "table-034",
+            "table-035",
+            "table-036"
+          ],
+          [],
+          [],
+          [],
+          [
+            "table-037",
+            "table-038",
+            "table-039"
+          ]
+        ],
+        "figure_ids": [
+          [
+            "figure-025"
+          ],
+          [
+            "figure-016",
+            "figure-017"
+          ],
+          [],
+          [
+            "figure-018",
+            "figure-019"
+          ],
+          [
+            "figure-026",
+            "figure-027",
+            "figure-028",
+            "figure-029",
+            "figure-030",
+            "figure-031"
+          ]
+        ],
+        "parent_rank": 1,
+        "figure_rank": 1
+      },
+      "stage_two_reranked": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-16",
+          "ifc-annual-report-2024-financials-parent-9",
+          "ifc-annual-report-2024-financials-parent-0",
+          "ifc-annual-report-2024-financials-parent-2",
+          "ifc-annual-report-2024-financials-parent-1"
+        ],
+        "table_ids": [
+          [
+            "table-029",
+            "table-030",
+            "table-031",
+            "table-032",
+            "table-033",
+            "table-034",
+            "table-035",
+            "table-036"
+          ],
+          [],
+          [
+            "table-001",
+            "table-002"
+          ],
+          [
+            "table-003",
+            "table-004",
+            "table-005"
+          ],
+          []
+        ],
+        "figure_ids": [
+          [
+            "figure-025"
+          ],
+          [
+            "figure-018",
+            "figure-019"
+          ],
+          [
+            "figure-001",
+            "figure-002"
+          ],
+          [
+            "figure-009"
+          ],
+          [
+            "figure-003",
+            "figure-004",
+            "figure-005",
+            "figure-006",
+            "figure-007",
+            "figure-008"
+          ]
+        ],
+        "parent_rank": 1,
+        "figure_rank": 1
+      },
+      "latency_ms": {
+        "embedding": 514.84,
+        "sql": 38.31,
+        "rerank": 829.32,
+        "total": 1382.61
+      },
+      "confidence_decision": {
+        "status": "grounded",
+        "rrf_score": 0.03278688524590164,
+        "vector_distance": 0.26642519244635265,
+        "lexical_match": true,
+        "rrf_score_margin": 0.016657852987837122,
+        "reasons": []
+      }
+    },
+    {
+      "id": "quoted-input",
+      "category": "raw-input",
+      "query": "\"IFC Advisory Services\" \"Program Expenditures\" region",
+      "stage_one_rrf": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-7",
+          "ifc-annual-report-2024-financials-parent-4",
+          "ifc-annual-report-2024-financials-parent-6",
+          "ifc-annual-report-2024-financials-parent-34",
+          "ifc-annual-report-2024-financials-parent-25"
+        ],
+        "table_ids": [
+          [
+            "table-016",
+            "table-017",
+            "table-018",
+            "table-019",
+            "table-020",
+            "table-021",
+            "table-022"
+          ],
+          [
+            "table-006",
+            "table-007",
+            "table-008",
+            "table-009",
+            "table-010",
+            "table-011",
+            "table-012",
+            "table-013"
+          ],
+          [],
+          [
+            "table-136",
+            "table-137",
+            "table-138",
+            "table-139"
+          ],
+          []
+        ],
+        "figure_ids": [
+          [
+            "figure-015"
+          ],
+          [
+            "figure-011",
+            "figure-012"
+          ],
+          [
+            "figure-014"
+          ],
+          [],
+          []
+        ],
+        "parent_rank": 1,
+        "table_rank": 1
+      },
+      "stage_two_reranked": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-7",
+          "ifc-annual-report-2024-financials-parent-6",
+          "ifc-annual-report-2024-financials-parent-31",
+          "ifc-annual-report-2024-financials-parent-25",
+          "ifc-annual-report-2024-financials-parent-3"
+        ],
+        "table_ids": [
+          [
+            "table-016",
+            "table-017",
+            "table-018",
+            "table-019",
+            "table-020",
+            "table-021",
+            "table-022"
+          ],
+          [],
+          [
+            "table-102",
+            "table-103",
+            "table-104",
+            "table-105",
+            "table-106",
+            "table-107",
+            "table-108",
+            "table-109",
+            "table-110",
+            "table-111",
+            "table-112",
+            "table-113",
+            "table-114",
+            "table-115"
+          ],
+          [],
+          []
+        ],
+        "figure_ids": [
+          [
+            "figure-015"
+          ],
+          [
+            "figure-014"
+          ],
+          [],
+          [],
+          [
+            "figure-010"
+          ]
+        ],
+        "parent_rank": 1,
+        "table_rank": 1
+      },
+      "latency_ms": {
+        "embedding": 546.14,
+        "sql": 42.58,
+        "rerank": 967.72,
+        "total": 1556.55
+      },
+      "confidence_decision": {
+        "status": "grounded",
+        "rrf_score": 0.04918032786885246,
+        "vector_distance": 0.2954412343857443,
+        "lexical_match": true,
+        "rrf_score_margin": 0.03305129561078794,
+        "reasons": []
+      }
+    },
+    {
+      "id": "numeric-input",
+      "category": "raw-input",
+      "query": "$31,654 million own account commitments FY24",
+      "stage_one_rrf": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-0",
+          "ifc-annual-report-2024-financials-parent-1",
+          "ifc-annual-report-2024-financials-parent-5",
+          "ifc-annual-report-2024-financials-parent-4",
+          "ifc-annual-report-2024-financials-parent-7"
+        ],
+        "table_ids": [
+          [
+            "table-001",
+            "table-002"
+          ],
+          [],
+          [
+            "table-014",
+            "table-015"
+          ],
+          [
+            "table-006",
+            "table-007",
+            "table-008",
+            "table-009",
+            "table-010",
+            "table-011",
+            "table-012",
+            "table-013"
+          ],
+          [
+            "table-016",
+            "table-017",
+            "table-018",
+            "table-019",
+            "table-020",
+            "table-021",
+            "table-022"
+          ]
+        ],
+        "figure_ids": [
+          [
+            "figure-001",
+            "figure-002"
+          ],
+          [
+            "figure-003",
+            "figure-004",
+            "figure-005",
+            "figure-006",
+            "figure-007",
+            "figure-008"
+          ],
+          [
+            "figure-013"
+          ],
+          [
+            "figure-011",
+            "figure-012"
+          ],
+          [
+            "figure-015"
+          ]
+        ],
+        "parent_rank": 1,
+        "table_rank": 1
+      },
+      "stage_two_reranked": {
+        "parent_ids": [
+          "ifc-annual-report-2024-financials-parent-4",
+          "ifc-annual-report-2024-financials-parent-0",
+          "ifc-annual-report-2024-financials-parent-1",
+          "ifc-annual-report-2024-financials-parent-10",
+          "ifc-annual-report-2024-financials-parent-16"
+        ],
+        "table_ids": [
+          [
+            "table-006",
+            "table-007",
+            "table-008",
+            "table-009",
+            "table-010",
+            "table-011",
+            "table-012",
+            "table-013"
+          ],
+          [
+            "table-001",
+            "table-002"
+          ],
+          [],
+          [
+            "table-023"
+          ],
+          [
+            "table-029",
+            "table-030",
+            "table-031",
+            "table-032",
+            "table-033",
+            "table-034",
+            "table-035",
+            "table-036"
+          ]
+        ],
+        "figure_ids": [
+          [
+            "figure-011",
+            "figure-012"
+          ],
+          [
+            "figure-001",
+            "figure-002"
+          ],
+          [
+            "figure-003",
+            "figure-004",
+            "figure-005",
+            "figure-006",
+            "figure-007",
+            "figure-008"
+          ],
+          [
+            "figure-020"
+          ],
+          [
+            "figure-025"
+          ]
+        ],
+        "parent_rank": 2,
+        "table_rank": 2
+      },
+      "latency_ms": {
+        "embedding": 605.18,
+        "sql": 43.05,
+        "rerank": 900.61,
+        "total": 1549.08
+      },
+      "confidence_decision": {
+        "status": "grounded",
+        "rrf_score": 0.030886196246139225,
+        "vector_distance": 0.35057966832111376,
+        "lexical_match": true,
+        "rrf_score_margin": 0.014492753623188406,
+        "reasons": []
+      }
+    },
+    {
+      "id": "unsupported-query",
+      "category": "unsupported",
+      "query": "What was IFC's Mars colonization budget?",
+      "expected_status": "not_found",
+      "confidence_decision": {
+        "status": "not_found",
+        "rrf_score": 0.01639344262295082,
+        "vector_distance": 0.4113603669864625,
+        "lexical_match": false,
+        "rrf_score_margin": 0.00026441036488630354,
+        "reasons": [
+          "Vector distance 0.41136 is weaker than 0.40000.",
+          "No lexical evidence matched the uploaded documents."
+        ]
+      },
+      "status_passed": true,
+      "latency_ms": {
+        "embedding": 496.84,
+        "sql": 29.56,
+        "rerank": 0.0,
+        "total": 526.54
+      }
+    },
+    {
+      "id": "blank-query",
+      "status": "passed",
+      "message": "query must not be empty"
+    }
+  ]
+}
