@@ -1,8 +1,12 @@
 """Static contract checks for the pgvector retrieval implementation."""
 
+from types import SimpleNamespace
+from unittest.mock import patch
+
 from retrieval.pg_engine import (
     EMBEDDING_DIMENSION,
     HYBRID_SEARCH_AND_JOIN_SQL,
+    _embed,
     _matched_table_text_for_reranking,
     _vector_literal,
 )
@@ -14,6 +18,7 @@ def test_schema_defines_hnsw_vector_and_full_text_indexes() -> None:
 
     assert "CREATE EXTENSION IF NOT EXISTS vector" in schema
     assert "embedding VECTOR(1536)" in schema
+    assert schema.count("page_numbers INTEGER[]") >= 3
     assert "USING hnsw (embedding vector_cosine_ops)" in schema
     assert "USING gin (fts_content)" in schema
     assert "table_chunks_fts_content_gin_idx" in schema
@@ -31,6 +36,8 @@ def test_hybrid_query_fuses_and_joins_in_one_sql_statement() -> None:
     assert "FROM tables AS source_table" in HYBRID_SEARCH_AND_JOIN_SQL
     assert "%s::text[] AS document_ids" in HYBRID_SEARCH_AND_JOIN_SQL
     assert "child.doc_id = ANY(input.document_ids)" in HYBRID_SEARCH_AND_JOIN_SQL
+    assert "child.page_numbers" in HYBRID_SEARCH_AND_JOIN_SQL
+    assert "parent.page_numbers AS parent_page_numbers" in HYBRID_SEARCH_AND_JOIN_SQL
     assert HYBRID_SEARCH_AND_JOIN_SQL.count("%s") == 8
 
 
@@ -45,3 +52,26 @@ def test_only_matching_table_rows_are_included_in_reranker_evidence() -> None:
     table_chunks = [{"text_with_context": "Temperature limit: 180°C"}]
 
     assert _matched_table_text_for_reranking(table_chunks) == "Temperature limit: 180°C"
+
+
+def test_embedding_batches_report_completed_child_counts() -> None:
+    """Large bundle embedding reports actual completed batches rather than elapsed time."""
+    embedding = [0.0] * EMBEDDING_DIMENSION
+    responses = [
+        SimpleNamespace(
+            data=[SimpleNamespace(embedding=embedding) for _ in range(100)]
+        ),
+        SimpleNamespace(data=[SimpleNamespace(embedding=embedding)]),
+    ]
+    events: list[tuple[int, str, dict[str, int]]] = []
+
+    with patch(
+        "retrieval.pg_engine.llm_client.embeddings.create", side_effect=responses
+    ):
+        result = _embed(
+            [f"child {index}" for index in range(101)],
+            lambda percent, stage, details: events.append((percent, stage, details)),
+        )
+
+    assert len(result) == 101
+    assert events[-1] == (85, "embedding_children", {"completed": 101, "total": 101})

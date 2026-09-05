@@ -12,6 +12,7 @@
 - Replaced raw lexical parsing with `websearch_to_tsquery` and added table-chunk full-text retrieval, so table-only numeric/unit matches can retrieve their owning parents and participate in reranking.
 - Added content-derived document IDs to prevent same-name upload collisions and limited reranker table input to the highest-scoring matched table chunk.
 - Added static retrieval-contract coverage; the project test suite passes.
+- Persisted parent, child, and table-chunk page arrays and returned them in the atomic hybrid retrieval join.
 
 ## Missing
 

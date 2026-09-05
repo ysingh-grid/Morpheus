@@ -14,7 +14,12 @@ from uuid import uuid4
 
 import psycopg
 
-from retrieval.pg_engine import _database_url, hybrid_search_and_join, ingest_bundle, initialize_schema
+from retrieval.pg_engine import (
+    _database_url,
+    hybrid_search_and_join,
+    ingest_bundle,
+    initialize_schema,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +41,14 @@ def _bundle(document_id: str) -> dict[str, Any]:
             {
                 "parent_id": parent_id,
                 "parent_text": "Quarterly revenue grew because the North region expanded its customer base.",
+                "page_numbers": [1],
                 "figure_ids": [figure_id],
                 "table_ids": [table_id],
             },
             {
                 "parent_id": unrelated_parent_id,
                 "parent_text": "Facilities maintenance costs remained stable during the reporting period.",
+                "page_numbers": [2],
                 "figure_ids": [],
                 "table_ids": [],
             },
@@ -50,7 +57,9 @@ def _bundle(document_id: str) -> dict[str, Any]:
             {
                 "figure_id": figure_id,
                 "caption": "North region revenue growth increased quarter over quarter.",
-                "bounding_boxes": [{"page": 1, "left": 10, "top": 20, "right": 100, "bottom": 120}],
+                "bounding_boxes": [
+                    {"page_no": 1, "left": 10, "top": 20, "right": 100, "bottom": 120}
+                ],
             }
         ],
         "tables": [
@@ -60,7 +69,9 @@ def _bundle(document_id: str) -> dict[str, Any]:
                 "heading": "Regional revenue growth",
                 "caption": "Quarterly regional revenue growth",
                 "context": "The North region delivered the strongest revenue growth.",
-                "bounding_boxes": [{"page": 1, "left": 20, "top": 150, "right": 200, "bottom": 240}],
+                "bounding_boxes": [
+                    {"page_no": 1, "left": 20, "top": 150, "right": 200, "bottom": 240}
+                ],
                 "row_count": 2,
                 "column_count": 2,
                 "chunk_ids": [table_chunk_id],
@@ -77,6 +88,7 @@ def _bundle(document_id: str) -> dict[str, Any]:
                     "Caption: Quarterly regional revenue growth\n"
                     "| Region | Revenue growth |\n| North | 18 percent |"
                 ),
+                "page_numbers": [1],
             }
         ],
         "children": [
@@ -134,7 +146,10 @@ def test_two_tier_retrieval_round_trip_uses_real_postgres_and_gemini() -> None:
     logger.info("E2E retrieval step 1/5: initialize pgvector schema")
     initialize_schema()
     try:
-        logger.info("E2E retrieval step 2/5: embed and ingest normalized bundle", extra={"document_id": document_id})
+        logger.info(
+            "E2E retrieval step 2/5: embed and ingest normalized bundle",
+            extra={"document_id": document_id},
+        )
         assert ingest_bundle(bundle) == {
             "parents": 2,
             "figures": 1,
@@ -143,7 +158,9 @@ def test_two_tier_retrieval_round_trip_uses_real_postgres_and_gemini() -> None:
             "children": 2,
         }
 
-        logger.info("E2E retrieval step 3/5: verify normalized parent-child and asset rows")
+        logger.info(
+            "E2E retrieval step 3/5: verify normalized parent-child and asset rows"
+        )
         _assert_persisted_two_tier_records(document_id)
 
         logger.info("E2E retrieval step 4/5: run hybrid RRF search and relational join")
@@ -156,13 +173,24 @@ def test_two_tier_retrieval_round_trip_uses_real_postgres_and_gemini() -> None:
         result = evidence[0]
         assert result["document_id"] == document_id
         assert result["parent_id"] == bundle["parents"][0]["parent_id"]
+        assert result["page_numbers"] == [1]
+        assert result["parent_page_numbers"] == [1]
         assert "North region" in result["parent_text"]
         assert result["figures"][0]["figure_id"] == bundle["figures"][0]["figure_id"]
         assert result["tables"][0]["table_id"] == bundle["tables"][0]["table_id"]
-        assert result["matched_table_chunks"][0]["table_chunk_id"] == bundle["table_chunks"][0]["table_chunk_id"]
+        assert (
+            result["matched_table_chunks"][0]["table_chunk_id"]
+            == bundle["table_chunks"][0]["table_chunk_id"]
+        )
         assert "18 percent" in result["matched_table_chunks"][0]["text_with_context"]
+        assert result["matched_table_chunks"][0]["page_numbers"] == [1]
         assert result["reranker_score"] >= 0.0
-        logger.info("E2E retrieval complete", extra={"document_id": document_id, "parent_id": result["parent_id"]})
+        logger.info(
+            "E2E retrieval complete",
+            extra={"document_id": document_id, "parent_id": result["parent_id"]},
+        )
     finally:
         _delete_test_document(document_id)
-        logger.info("E2E retrieval cleanup complete", extra={"document_id": document_id})
+        logger.info(
+            "E2E retrieval cleanup complete", extra={"document_id": document_id}
+        )

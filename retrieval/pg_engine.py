@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Any, Literal, TypedDict
+from typing import Any, Callable, Literal, TypedDict
 
 from core.config import llm_client
 
@@ -25,6 +25,7 @@ MIN_RRF_SCORE = float(os.getenv("RETRIEVAL_MIN_RRF_SCORE", "0.016"))
 MAX_VECTOR_DISTANCE = float(os.getenv("RETRIEVAL_MAX_VECTOR_DISTANCE", "0.400"))
 MIN_RRF_SCORE_MARGIN = float(os.getenv("RETRIEVAL_MIN_RRF_SCORE_MARGIN", "0.0002"))
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
+ProgressCallback = Callable[[int, str, dict[str, Any]], None]
 
 
 class GroundedEvidence(TypedDict):
@@ -35,6 +36,8 @@ class GroundedEvidence(TypedDict):
     parent_id: str
     parent_text: str
     document_id: str
+    page_numbers: list[int]
+    parent_page_numbers: list[int]
     rrf_score: float
     vector_distance: float | None
     lexical_match: bool
@@ -178,8 +181,10 @@ top_parents AS (
 SELECT
     child.chunk_id,
     child.child_text,
+    child.page_numbers,
     parent.id AS parent_id,
     parent.parent_text,
+    parent.page_numbers AS parent_page_numbers,
     parent.doc_id AS document_id,
     top_parents.rrf_score,
     vector_scores.distance AS vector_distance,
@@ -200,7 +205,8 @@ CROSS JOIN search_input AS input
 JOIN LATERAL (
     SELECT
         source_child.id AS chunk_id,
-        source_child.text_with_context AS child_text
+        source_child.text_with_context AS child_text,
+        source_child.page_numbers
     FROM children AS source_child
     WHERE source_child.parent_id = parent.id
     ORDER BY source_child.embedding <=> input.query_embedding
@@ -239,7 +245,8 @@ LEFT JOIN LATERAL (
                 'table_chunk_id', table_chunk.id,
                 'row_start', table_chunk.row_start,
                 'row_end', table_chunk.row_end,
-                'text_with_context', table_chunk.text_with_context
+                'text_with_context', table_chunk.text_with_context,
+                'page_numbers', table_chunk.page_numbers
             ) ORDER BY table_chunk.row_start, table_chunk.id
         ) AS table_chunks
         FROM table_chunks AS table_chunk
@@ -256,7 +263,8 @@ LEFT JOIN LATERAL (
             'table_id', matched_table_chunk.table_id,
             'row_start', matched_table_chunk.row_start,
             'row_end', matched_table_chunk.row_end,
-            'text_with_context', matched_table_chunk.text_with_context
+            'text_with_context', matched_table_chunk.text_with_context,
+            'page_numbers', matched_table_chunk.page_numbers
         )
     ) AS table_chunks
     FROM table_match_chunks AS table_match
@@ -273,7 +281,9 @@ def _database_url() -> str:
     """Return the PostgreSQL connection URL or fail before opening a connection."""
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
-        raise RuntimeError("DATABASE_URL must be set to use the pgvector retrieval engine.")
+        raise RuntimeError(
+            "DATABASE_URL must be set to use the pgvector retrieval engine."
+        )
     return database_url
 
 
@@ -282,7 +292,9 @@ def _psycopg() -> Any:
     try:
         import psycopg
     except ImportError as error:
-        raise RuntimeError("Install PostgreSQL dependencies with: uv add 'psycopg[binary]>=3.2'") from error
+        raise RuntimeError(
+            "Install PostgreSQL dependencies with: uv add 'psycopg[binary]>=3.2'"
+        ) from error
     return psycopg
 
 
@@ -291,7 +303,9 @@ def _jsonb(value: object) -> Any:
     try:
         from psycopg.types.json import Jsonb
     except ImportError as error:
-        raise RuntimeError("Install PostgreSQL dependencies with: uv add 'psycopg[binary]>=3.2'") from error
+        raise RuntimeError(
+            "Install PostgreSQL dependencies with: uv add 'psycopg[binary]>=3.2'"
+        ) from error
     return Jsonb(value)
 
 
@@ -300,7 +314,10 @@ def _vector_literal(values: list[float]) -> str:
     return "[" + ",".join(str(value) for value in values) + "]"
 
 
-def _embed(texts: list[str]) -> list[list[float]]:
+def _embed(
+    texts: list[str],
+    progress_callback: ProgressCallback | None = None,
+) -> list[list[float]]:
     """Generate 1,536-dimensional Gemini embeddings through the shared client."""
     if not texts:
         return []
@@ -312,8 +329,17 @@ def _embed(texts: list[str]) -> list[list[float]]:
             dimensions=EMBEDDING_DIMENSION,
         )
         embeddings.extend(list(item.embedding) for item in response.data)
+        if progress_callback is not None:
+            completed = min(offset + EMBEDDING_BATCH_SIZE, len(texts))
+            progress_callback(
+                round(85 * completed / len(texts)),
+                "embedding_children",
+                {"completed": completed, "total": len(texts)},
+            )
     if len(embeddings) != len(texts):
-        raise RuntimeError("Gemini returned a different number of embeddings than requested.")
+        raise RuntimeError(
+            "Gemini returned a different number of embeddings than requested."
+        )
     if any(len(embedding) != EMBEDDING_DIMENSION for embedding in embeddings):
         raise RuntimeError(
             f"Gemini embedding dimension must be {EMBEDDING_DIMENSION}; "
@@ -367,7 +393,10 @@ def document_ingestion_stats(document_id: str) -> dict[str, int] | None:
     return {key: int(value) for key, value in row.items()}
 
 
-def ingest_bundle(bundle_json: dict) -> dict[str, int]:
+def ingest_bundle(
+    bundle_json: dict,
+    progress_callback: ProgressCallback | None = None,
+) -> dict[str, int]:
     """Embed and atomically load one normalized preprocessor bundle into PostgreSQL.
 
     Existing records for the document are deleted and replaced inside the same
@@ -380,9 +409,16 @@ def ingest_bundle(bundle_json: dict) -> dict[str, int]:
     tables = _required(bundle_json, "tables")
     table_chunks = _required(bundle_json, "table_chunks")
     children = _required(bundle_json, "children")
-    embeddings = _embed([child["text_with_context"] for child in children])
+    if progress_callback is not None:
+        progress_callback(0, "starting_vector_storage", {"total": len(children)})
+    embeddings = _embed(
+        [child["text_with_context"] for child in children],
+        progress_callback,
+    )
 
     psycopg = _psycopg()
+    if progress_callback is not None:
+        progress_callback(90, "writing_postgresql", {"total": len(children)})
     with psycopg.connect(_database_url()) as connection:
         with connection.cursor() as cursor:
             cursor.execute("DELETE FROM documents WHERE id = %s", (document_id,))
@@ -392,14 +428,15 @@ def ingest_bundle(bundle_json: dict) -> dict[str, int]:
             )
             cursor.executemany(
                 """
-                INSERT INTO parents (id, doc_id, parent_text, figure_ids, table_ids)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO parents (id, doc_id, parent_text, page_numbers, figure_ids, table_ids)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 """,
                 [
                     (
                         parent["parent_id"],
                         document_id,
                         parent["parent_text"],
+                        parent.get("page_numbers", []),
                         parent["figure_ids"],
                         parent["table_ids"],
                     )
@@ -409,7 +446,12 @@ def ingest_bundle(bundle_json: dict) -> dict[str, int]:
             cursor.executemany(
                 "INSERT INTO figures (id, doc_id, caption, bounding_boxes) VALUES (%s, %s, %s, %s)",
                 [
-                    (figure["figure_id"], document_id, figure["caption"], _jsonb(figure["bounding_boxes"]))
+                    (
+                        figure["figure_id"],
+                        document_id,
+                        figure["caption"],
+                        _jsonb(figure["bounding_boxes"]),
+                    )
                     for figure in figures
                 ],
             )
@@ -439,8 +481,8 @@ def ingest_bundle(bundle_json: dict) -> dict[str, int]:
             cursor.executemany(
                 """
                 INSERT INTO table_chunks (
-                    id, table_id, doc_id, row_start, row_end, text_with_context
-                ) VALUES (%s, %s, %s, %s, %s, %s)
+                    id, table_id, doc_id, row_start, row_end, text_with_context, page_numbers
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """,
                 [
                     (
@@ -450,14 +492,16 @@ def ingest_bundle(bundle_json: dict) -> dict[str, int]:
                         table_chunk["row_start"],
                         table_chunk["row_end"],
                         table_chunk["text_with_context"],
+                        table_chunk.get("page_numbers", []),
                     )
                     for table_chunk in table_chunks
                 ],
             )
             cursor.executemany(
                 """
-                INSERT INTO children (id, parent_id, doc_id, text_with_context, embedding)
-                VALUES (%s, %s, %s, %s, %s::vector)
+                INSERT INTO children (
+                    id, parent_id, doc_id, text_with_context, page_numbers, embedding
+                ) VALUES (%s, %s, %s, %s, %s, %s::vector)
                 """,
                 [
                     (
@@ -465,14 +509,21 @@ def ingest_bundle(bundle_json: dict) -> dict[str, int]:
                         child["parent_id"],
                         document_id,
                         child["text_with_context"],
+                        child.get("metadata", {}).get("page_numbers", []),
                         _vector_literal(embedding),
                     )
                     for child, embedding in zip(children, embeddings, strict=True)
                 ],
             )
+    if progress_callback is not None:
+        progress_callback(100, "vector_storage_complete", {"total": len(children)})
     logger.info(
         "Ingested normalized document bundle",
-        extra={"document_id": document_id, "children": len(children), "tables": len(tables)},
+        extra={
+            "document_id": document_id,
+            "children": len(children),
+            "tables": len(tables),
+        },
     )
     return {
         "parents": len(parents),
@@ -483,18 +534,24 @@ def ingest_bundle(bundle_json: dict) -> dict[str, int]:
     }
 
 
-def attach_documents_to_session(user_id: str, session_id: str, document_ids: list[str]) -> None:
+def attach_documents_to_session(
+    user_id: str, session_id: str, document_ids: list[str]
+) -> None:
     """Attach existing normalized documents to one persistent chat session."""
     if not user_id.strip() or not session_id.strip():
         raise ValueError("user_id and session_id must not be empty")
-    normalized_ids = list(dict.fromkeys(document_id for document_id in document_ids if document_id))
+    normalized_ids = list(
+        dict.fromkeys(document_id for document_id in document_ids if document_id)
+    )
     if not normalized_ids:
         return
 
     psycopg = _psycopg()
     with psycopg.connect(_database_url()) as connection:
         with connection.cursor() as cursor:
-            cursor.execute("SELECT id FROM documents WHERE id = ANY(%s)", (normalized_ids,))
+            cursor.execute(
+                "SELECT id FROM documents WHERE id = ANY(%s)", (normalized_ids,)
+            )
             existing_ids = {record[0] for record in cursor.fetchall()}
             missing_ids = set(normalized_ids) - existing_ids
             if missing_ids:
@@ -514,25 +571,37 @@ def attach_documents_to_session(user_id: str, session_id: str, document_ids: lis
             )
     logger.info(
         "Attached documents to chat session",
-        extra={"user_id": user_id, "session_id": session_id, "document_count": len(normalized_ids)},
+        extra={
+            "user_id": user_id,
+            "session_id": session_id,
+            "document_count": len(normalized_ids),
+        },
     )
 
 
-def _flashrank_rerank(query: str, records: list[dict[str, Any]], top_k: int) -> list[GroundedEvidence]:
+def _flashrank_rerank(
+    query: str, records: list[dict[str, Any]], top_k: int
+) -> list[GroundedEvidence]:
     """Rerank parent evidence with FlashRank after the SQL retrieval pass."""
     try:
         from flashrank import Ranker, RerankRequest
     except ImportError as error:
-        raise RuntimeError("Install reranking dependencies with: uv add 'flashrank>=0.2.10'") from error
+        raise RuntimeError(
+            "Install reranking dependencies with: uv add 'flashrank>=0.2.10'"
+        ) from error
 
-    ranker = Ranker(model_name=os.getenv("RERANKER_MODEL_NAME", "ms-marco-MiniLM-L-12-v2"))
+    ranker = Ranker(
+        model_name=os.getenv("RERANKER_MODEL_NAME", "ms-marco-MiniLM-L-12-v2")
+    )
     passages = [
         {
             "id": str(index),
             "text": "\n\n".join(
                 part
                 for part in (
-                    _matched_table_text_for_reranking(list(record["matched_table_chunks"])),
+                    _matched_table_text_for_reranking(
+                        list(record["matched_table_chunks"])
+                    ),
                     record["child_text"],
                     record["parent_text"],
                 )
@@ -552,9 +621,13 @@ def _flashrank_rerank(query: str, records: list[dict[str, Any]], top_k: int) -> 
                 "parent_id": record["parent_id"],
                 "parent_text": record["parent_text"],
                 "document_id": record["document_id"],
+                "page_numbers": list(record["page_numbers"]),
+                "parent_page_numbers": list(record["parent_page_numbers"]),
                 "rrf_score": float(record["rrf_score"]),
                 "vector_distance": (
-                    float(record["vector_distance"]) if record["vector_distance"] is not None else None
+                    float(record["vector_distance"])
+                    if record["vector_distance"] is not None
+                    else None
                 ),
                 "lexical_match": bool(record["lexical_match"]),
                 "rrf_score_margin": float(record["rrf_score_margin"]),
@@ -582,7 +655,9 @@ def _assess_confidence(records: list[dict[str, Any]]) -> RetrievalConfidence:
     top_record = records[0]
     rrf_score = float(top_record["rrf_score"])
     vector_distance = (
-        float(top_record["vector_distance"]) if top_record["vector_distance"] is not None else None
+        float(top_record["vector_distance"])
+        if top_record["vector_distance"] is not None
+        else None
     )
     lexical_match = bool(top_record["lexical_match"])
     rrf_score_margin = float(top_record["rrf_score_margin"])
@@ -591,8 +666,12 @@ def _assess_confidence(records: list[dict[str, Any]]) -> RetrievalConfidence:
     if rrf_score < MIN_RRF_SCORE:
         reasons.append(f"RRF score {rrf_score:.5f} is below {MIN_RRF_SCORE:.5f}.")
     if vector_distance is None or vector_distance > MAX_VECTOR_DISTANCE:
-        distance_text = "missing" if vector_distance is None else f"{vector_distance:.5f}"
-        reasons.append(f"Vector distance {distance_text} is weaker than {MAX_VECTOR_DISTANCE:.5f}.")
+        distance_text = (
+            "missing" if vector_distance is None else f"{vector_distance:.5f}"
+        )
+        reasons.append(
+            f"Vector distance {distance_text} is weaker than {MAX_VECTOR_DISTANCE:.5f}."
+        )
     if rrf_score_margin < MIN_RRF_SCORE_MARGIN:
         reasons.append(
             f"RRF score margin {rrf_score_margin:.5f} is below {MIN_RRF_SCORE_MARGIN:.5f}."
@@ -605,7 +684,8 @@ def _assess_confidence(records: list[dict[str, Any]]) -> RetrievalConfidence:
             "vector_distance": vector_distance,
             "lexical_match": lexical_match,
             "rrf_score_margin": rrf_score_margin,
-            "reasons": reasons + ["No lexical evidence matched the uploaded documents."],
+            "reasons": reasons
+            + ["No lexical evidence matched the uploaded documents."],
         }
     if reasons:
         return {
@@ -659,7 +739,10 @@ def hybrid_search_and_join(
             records = list(cursor.fetchall())
     confidence = _assess_confidence(records)
     if confidence["status"] == "not_found":
-        logger.info("Retrieval declined due to insufficient evidence", extra={"confidence": confidence})
+        logger.info(
+            "Retrieval declined due to insufficient evidence",
+            extra={"confidence": confidence},
+        )
         return {
             "status": "not_found",
             "message": "Not found in uploaded documents.",
@@ -667,12 +750,17 @@ def hybrid_search_and_join(
             "evidence": [],
         }
     if confidence["status"] == "clarification_needed":
-        logger.info("Retrieval needs clarification due to ambiguous evidence", extra={"confidence": confidence})
+        logger.info(
+            "Retrieval needs clarification due to ambiguous evidence",
+            extra={"confidence": confidence},
+        )
         return {
             "status": "clarification_needed",
             "message": "I found ambiguous evidence in the uploaded documents. Please clarify your question.",
             "confidence": confidence,
-            "evidence": _flashrank_rerank(query, records, top_k) if include_ambiguous_evidence else [],
+            "evidence": _flashrank_rerank(query, records, top_k)
+            if include_ambiguous_evidence
+            else [],
         }
     return {
         "status": "grounded",

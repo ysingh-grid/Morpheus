@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+from types import SimpleNamespace
 from typing import Any, Callable
+from unittest.mock import patch
 from uuid import uuid4
 
 from temporalio import activity
@@ -15,6 +17,11 @@ from temporalio.worker import Worker
 
 from orchestration.activities import (
     _compact_evidence,
+    _display_document_name,
+    _document_evidence_pages,
+    _document_evidence_pages_by_name,
+    _page_grounded_child_text,
+    _source_citations_are_valid,
     generate_direct_answer_activity,
     generate_answer_activity,
     load_history_activity,
@@ -24,7 +31,12 @@ from orchestration.activities import (
     verify_borderline_confidence_activity,
 )
 from orchestration.workflows import AgentWorkflow
-from retrieval.pg_engine import _database_url, _psycopg, attach_documents_to_session, initialize_schema
+from retrieval.pg_engine import (
+    _database_url,
+    _psycopg,
+    attach_documents_to_session,
+    initialize_schema,
+)
 
 CALLS: Counter[str] = Counter()
 
@@ -46,6 +58,131 @@ def test_compact_evidence_accepts_retrieval_table_chunk_identifier() -> None:
     )
 
     assert compact["matched_table_chunk_ids"] == ["table-1-chunk-0"]
+
+
+def test_document_evidence_pages_collects_text_table_and_figure_provenance() -> None:
+    """Citation allowlists include every explicit page source and no inferred values."""
+    pages = _document_evidence_pages(
+        [
+            {
+                "page_numbers": [2],
+                "parent_page_numbers": [2, 3],
+                "document_name": "report.pdf",
+                "matched_table_chunks": [{"page_numbers": [4]}],
+                "figures": [{"bounding_boxes": [{"page_no": 5}]}],
+                "tables": [{"bounding_boxes": [{"page_no": 6}]}],
+            }
+        ]
+    )
+
+    assert pages == {2, 3, 4, 5, 6}
+    assert _document_evidence_pages_by_name(
+        [
+            {
+                "document_name": "report.pdf",
+                "page_numbers": [2],
+                "parent_page_numbers": [3],
+                "figures": [],
+                "tables": [],
+                "matched_table_chunks": [],
+            }
+        ]
+    ) == {"report.pdf": {2, 3}}
+
+
+def test_page_grounded_child_text_removes_global_summary() -> None:
+    """Generated document summaries must not masquerade as page-local evidence."""
+    text = (
+        "Document summary: This fact may come from any page.\n\nPage-local source text."
+    )
+
+    assert _page_grounded_child_text(text) == "Page-local source text."
+    assert _page_grounded_child_text("Already page-local.") == "Already page-local."
+
+
+def test_display_document_name_removes_only_openwebui_upload_prefix() -> None:
+    """Citations show user filenames rather than Open WebUI's opaque stored name."""
+    assert (
+        _display_document_name(
+            "uploads/eb8a850d-0bbc-4c5f-a21c-e456689aae00_Circular.pdf"
+        )
+        == "Circular.pdf"
+    )
+    assert _display_document_name("dummy_data/annual-report.pdf") == "annual-report.pdf"
+
+
+def test_source_citation_validation_rejects_missing_or_unavailable_pages() -> None:
+    """Only visible citations with grounded filenames and full page ranges are accepted."""
+    allowed = {"report.pdf": {12, 13}}
+    assert _source_citations_are_valid(
+        "Assets rose. [Source: report.pdf, pp. 12–13]", allowed
+    )
+    assert not _source_citations_are_valid("Assets rose.", allowed)
+    assert not _source_citations_are_valid(
+        "Assets rose. [Source: report.pdf, p. 14]", allowed
+    )
+    assert not _source_citations_are_valid(
+        "Assets rose. [Source: other.pdf, p. 12]", allowed
+    )
+    assert not _source_citations_are_valid(
+        "Assets rose. [Source: report.pdf, pp. 12–15]", allowed
+    )
+
+
+def test_generate_answer_repairs_missing_page_citation() -> None:
+    """An uncited model draft gets one constrained repair before it is returned."""
+    evidence = [
+        {
+            "chunk_id": "child-1",
+            "parent_id": "parent-1",
+            "document_id": "document-1",
+            "child_text": "The total was 42.",
+            "parent_text": "The total was 42.",
+            "document_name": "report.pdf",
+            "page_numbers": [7],
+            "parent_page_numbers": [7],
+            "figures": [],
+            "tables": [],
+            "matched_table_chunks": [],
+        }
+    ]
+    responses = [
+        SimpleNamespace(
+            choices=[
+                SimpleNamespace(message=SimpleNamespace(content="The total was 42."))
+            ]
+        ),
+        SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content="The total was 42. [Source: report.pdf, p. 7]"
+                    )
+                )
+            ]
+        ),
+    ]
+
+    with (
+        patch(
+            "orchestration.activities._load_evidence_by_references",
+            return_value=evidence,
+        ),
+        patch("orchestration.activities._load_mcp_results", return_value=[]),
+        patch(
+            "orchestration.activities.llm_client.chat.completions.create",
+            side_effect=responses,
+        ) as create,
+    ):
+        answer = generate_answer_activity(
+            "What was the total?",
+            [{"chunk_id": "child-1", "parent_id": "parent-1"}],
+            [],
+            [],
+        )
+
+    assert answer == "The total was 42. [Source: report.pdf, p. 7]"
+    assert create.call_count == 2
 
 
 @activity.defn(name="extract_user_facts_activity")
@@ -114,11 +251,18 @@ def _next_action(state: dict[str, Any]) -> dict[str, Any]:
     if result.get("iteration_count", 0) >= result.get("max_turns", 5):
         result["next_action"] = "ask_clarification"
     elif result.get("clarification_needed"):
-        remaining = [tool for tool in plan["tool_sequence"] if tool not in completed_tools]
+        remaining = [
+            tool for tool in plan["tool_sequence"] if tool not in completed_tools
+        ]
         result["next_action"] = remaining[0] if remaining else "ask_clarification"
-    elif remaining := [tool for tool in plan["tool_sequence"] if tool not in completed_tools]:
+    elif remaining := [
+        tool for tool in plan["tool_sequence"] if tool not in completed_tools
+    ]:
         result["next_action"] = remaining[0]
-    elif plan["document_only"] and result.get("retrieval_response", {}).get("status") == "not_found":
+    elif (
+        plan["document_only"]
+        and result.get("retrieval_response", {}).get("status") == "not_found"
+    ):
         result["next_action"] = "ask_clarification"
     elif result.get("retrieved_evidence") or result.get("mcp_results"):
         result["next_action"] = "generate_answer"
@@ -248,14 +392,20 @@ async def _run_fake_workflow(
                 paused_state: dict[str, Any] | None = None
                 if choices:
                     for _ in range(20):
-                        paused_state = await handle.query(AgentWorkflow.get_workflow_state)
+                        paused_state = await handle.query(
+                            AgentWorkflow.get_workflow_state
+                        )
                         if paused_state["status"] == "awaiting_clarification":
                             break
                         await asyncio.sleep(0.05)
                     else:
-                        raise AssertionError(f"Workflow never paused for clarification: {paused_state}")
+                        raise AssertionError(
+                            f"Workflow never paused for clarification: {paused_state}"
+                        )
                     for choice in choices:
-                        await handle.signal(AgentWorkflow.user_clarification_signal, choice)
+                        await handle.signal(
+                            AgentWorkflow.user_clarification_signal, choice
+                        )
                 return paused_state, await handle.result()
 
 
@@ -280,7 +430,9 @@ async def _run_real_workflow(query: str) -> dict[str, Any]:
             )
             row = cursor.fetchone()
     if row is None:
-        raise AssertionError("The IFC integration-test document is not loaded in PostgreSQL.")
+        raise AssertionError(
+            "The IFC integration-test document is not loaded in PostgreSQL."
+        )
     attach_documents_to_session(user_id, session_id, [row[0]])
     activities = [
         load_history_activity,
@@ -343,7 +495,15 @@ def test_mcp_retry_does_not_repeat_retrieval() -> None:
     )
     assert result["status"] == "completed"
     assert CALLS == Counter(
-        {"decision": 3, "mcp": 2, "history": 1, "retrieval": 1, "verify": 1, "answer": 1, "session": 1}
+        {
+            "decision": 3,
+            "mcp": 2,
+            "history": 1,
+            "retrieval": 1,
+            "verify": 1,
+            "answer": 1,
+            "session": 1,
+        }
     )
 
 
@@ -361,7 +521,10 @@ def test_combined_plan_stores_only_mcp_reference_in_workflow_response() -> None:
     paused_state, result = asyncio.run(_run_fake_workflow("ambiguous with web"))
     assert paused_state is None
     assert result["sources_used"] == ["pgvector", "mcp_web_search"]
-    assert result["evidence"][-1] == {"tool_result_id": "tool-1", "tool_name": "tavily_search"}
+    assert result["evidence"][-1] == {
+        "tool_result_id": "tool-1",
+        "tool_name": "tavily_search",
+    }
 
 
 def test_direct_conversation_uses_no_retrieval_or_web_tool() -> None:

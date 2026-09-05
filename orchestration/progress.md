@@ -21,10 +21,10 @@
 - Verified the locally running Temporal server and `rag-agent-queue` worker with a
   real pgvector and Gemini grounded-retrieval workflow.
 - Refreshed Graphify after the component was added.
+- Added page-aware answer synthesis with HTML superscript citations, grounded-page validation, and one constrained repair attempt for uncited drafts.
 
 ## Missing
 
-- Add an answer-generation activity that consumes the consolidated evidence; Phase 3 currently returns evidence and source provenance only.
 - Add an API or UI caller that starts workflows, displays `awaiting_clarification`,
   and sends the approval or cancellation signal.
 - Add production connection pooling, migrations, authentication/tenant scoping, and observability around the PostgreSQL and Temporal clients.

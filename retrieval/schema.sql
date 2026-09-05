@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS parents (
     id TEXT PRIMARY KEY,
     doc_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
     parent_text TEXT NOT NULL,
+    page_numbers INTEGER[] NOT NULL DEFAULT ARRAY[]::INTEGER[],
     figure_ids TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
     table_ids TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[]
 );
@@ -43,6 +44,7 @@ CREATE TABLE IF NOT EXISTS table_chunks (
     row_start INTEGER NOT NULL,
     row_end INTEGER NOT NULL,
     text_with_context TEXT NOT NULL,
+    page_numbers INTEGER[] NOT NULL DEFAULT ARRAY[]::INTEGER[],
     fts_content TSVECTOR GENERATED ALWAYS AS (
         to_tsvector('english', text_with_context)
     ) STORED,
@@ -55,16 +57,26 @@ ALTER TABLE table_chunks
         to_tsvector('english', text_with_context)
     ) STORED;
 
+ALTER TABLE table_chunks
+    ADD COLUMN IF NOT EXISTS page_numbers INTEGER[] NOT NULL DEFAULT ARRAY[]::INTEGER[];
+
 CREATE TABLE IF NOT EXISTS children (
     id TEXT PRIMARY KEY,
     parent_id TEXT NOT NULL REFERENCES parents(id) ON DELETE CASCADE,
     doc_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
     text_with_context TEXT NOT NULL,
+    page_numbers INTEGER[] NOT NULL DEFAULT ARRAY[]::INTEGER[],
     embedding VECTOR(1536) NOT NULL,
     fts_content TSVECTOR GENERATED ALWAYS AS (
         to_tsvector('english', text_with_context)
     ) STORED
 );
+
+ALTER TABLE parents
+    ADD COLUMN IF NOT EXISTS page_numbers INTEGER[] NOT NULL DEFAULT ARRAY[]::INTEGER[];
+
+ALTER TABLE children
+    ADD COLUMN IF NOT EXISTS page_numbers INTEGER[] NOT NULL DEFAULT ARRAY[]::INTEGER[];
 
 CREATE TABLE IF NOT EXISTS user_facts (
     user_id TEXT NOT NULL,

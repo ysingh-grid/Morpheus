@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shlex
 from pathlib import Path
 from typing import Any
@@ -17,11 +18,23 @@ from temporalio.exceptions import ApplicationError
 
 from core.config import DEFAULT_MODEL, llm_client
 from ingestion.doc_processor import process_document
-from retrieval.pg_engine import _database_url, _psycopg, ingest_bundle, hybrid_search_and_join
+from retrieval.pg_engine import (
+    _database_url,
+    _psycopg,
+    ingest_bundle,
+    hybrid_search_and_join,
+)
 
 from orchestration.mcp_client import call_mcp_tool
 
 logger = logging.getLogger(__name__)
+SOURCE_CITATION_PATTERN = re.compile(
+    r"\[Source:\s*(?P<document>.+?),\s*pp?\.\s*(?P<pages>[0-9,\s\-–]+)\]",
+    re.IGNORECASE,
+)
+OPENWEBUI_UPLOAD_PREFIX = re.compile(
+    r"^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}_", re.IGNORECASE
+)
 
 
 class UserFact(BaseModel):
@@ -69,7 +82,9 @@ def ingest_document_activity(file_path: str) -> dict[str, int]:
         stats = ingest_bundle(bundle)
     except (OSError, ValueError) as error:
         raise _non_retryable(f"Unable to ingest document: {file_path}") from error
-    logger.info("Temporal document ingestion completed", extra={"file_path": str(path), **stats})
+    logger.info(
+        "Temporal document ingestion completed", extra={"file_path": str(path), **stats}
+    )
     return stats
 
 
@@ -83,7 +98,10 @@ def run_pgvector_retrieval_activity(query: str, top_k: int = 5) -> dict[str, Any
     response = hybrid_search_and_join(query, top_k)
     logger.info(
         "Temporal retrieval completed",
-        extra={"status": response["status"], "evidence_count": len(response["evidence"])},
+        extra={
+            "status": response["status"],
+            "evidence_count": len(response["evidence"]),
+        },
     )
     return dict(response)
 
@@ -193,7 +211,11 @@ def persist_session_turn_activity(
         ),
         "",
     )
-    summary = f"Latest user query: {latest_user_message}\nLatest assistant answer: {answer}"[:8000]
+    summary = (
+        f"Latest user query: {latest_user_message}\nLatest assistant answer: {answer}"[
+            :8000
+        ]
+    )
     psycopg = _psycopg()
     with psycopg.connect(_database_url()) as connection:
         with connection.cursor() as cursor:
@@ -207,7 +229,10 @@ def persist_session_turn_activity(
                 """,
                 (user_id, session_id, summary),
             )
-    logger.info("User session summary upserted", extra={"user_id": user_id, "session_id": session_id})
+    logger.info(
+        "User session summary upserted",
+        extra={"user_id": user_id, "session_id": session_id},
+    )
 
 
 def _compact_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
@@ -222,6 +247,8 @@ def _compact_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
         "chunk_id": evidence["chunk_id"],
         "parent_id": evidence["parent_id"],
         "document_id": evidence["document_id"],
+        "page_numbers": evidence.get("page_numbers", []),
+        "parent_page_numbers": evidence.get("parent_page_numbers", []),
         "rrf_score": evidence["rrf_score"],
         "vector_distance": evidence["vector_distance"],
         "lexical_match": evidence["lexical_match"],
@@ -310,7 +337,9 @@ def verify_borderline_confidence_activity(
     )
     assessment = completion.choices[0].message.parsed
     if assessment is None:
-        raise ValueError("Gemini did not return a structured context-sufficiency assessment.")
+        raise ValueError(
+            "Gemini did not return a structured context-sufficiency assessment."
+        )
     logger.info(
         "Borderline retrieval verified",
         extra={"is_context_sufficient": assessment.is_context_sufficient},
@@ -319,7 +348,9 @@ def verify_borderline_confidence_activity(
 
 
 @activity.defn
-async def execute_mcp_tool_activity(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
+async def execute_mcp_tool_activity(
+    tool_name: str, args: dict[str, Any]
+) -> dict[str, Any]:
     """Call the configured MCP server from an activity worker."""
     server_command = os.getenv("MCP_SERVER_COMMAND")
     server_args = shlex.split(os.getenv("MCP_SERVER_ARGS", ""))
@@ -333,7 +364,9 @@ async def execute_mcp_tool_activity(tool_name: str, args: dict[str, Any]) -> dic
     try:
         result = await call_mcp_tool(server_command, server_args, tool_name, args)
     except (OSError, ValueError, asyncio.TimeoutError) as error:
-        raise ApplicationError(f"MCP tool '{tool_name}' failed: {error}", type="McpToolError") from error
+        raise ApplicationError(
+            f"MCP tool '{tool_name}' failed: {error}", type="McpToolError"
+        ) from error
     if result.get("is_error"):
         raise ApplicationError(
             f"MCP tool '{tool_name}' returned an error response.",
@@ -360,11 +393,16 @@ async def execute_agent_mcp_activity(session_id: str, query: str) -> dict[str, s
                 """,
                 (result_id, session_id, "tavily_search", json.dumps(result)),
             )
-    logger.info("Agent MCP result stored", extra={"session_id": session_id, "tool_name": "tavily_search"})
+    logger.info(
+        "Agent MCP result stored",
+        extra={"session_id": session_id, "tool_name": "tavily_search"},
+    )
     return {"tool_result_id": result_id, "tool_name": "tavily_search"}
 
 
-def _load_evidence_by_references(references: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _load_evidence_by_references(
+    references: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     """Hydrate only selected parent, child, table, and figure records for an answer."""
     if not references:
         return []
@@ -382,16 +420,24 @@ def _load_evidence_by_references(references: list[dict[str, Any]]) -> list[dict[
         with connection.cursor(row_factory=psycopg.rows.dict_row) as cursor:
             cursor.execute(
                 """
-                SELECT id, doc_id, parent_text, figure_ids, table_ids
-                FROM parents
-                WHERE id = ANY(%s)
+                SELECT
+                    parent.id,
+                    parent.doc_id,
+                    parent.parent_text,
+                    parent.page_numbers,
+                    parent.figure_ids,
+                    parent.table_ids,
+                    document.source_path
+                FROM parents AS parent
+                JOIN documents AS document ON document.id = parent.doc_id
+                WHERE parent.id = ANY(%s)
                 """,
                 (parent_ids,),
             )
             parents = {record["id"]: record for record in cursor.fetchall()}
             cursor.execute(
                 """
-                SELECT id, parent_id, text_with_context
+                SELECT id, parent_id, text_with_context, page_numbers
                 FROM children
                 WHERE id = ANY(%s)
                 """,
@@ -408,12 +454,21 @@ def _load_evidence_by_references(references: list[dict[str, Any]]) -> list[dict[
                 """,
                 (parent_ids,),
             )
-            figures: dict[str, list[dict[str, Any]]] = {parent_id: [] for parent_id in parent_ids}
+            figures: dict[str, list[dict[str, Any]]] = {
+                parent_id: [] for parent_id in parent_ids
+            }
             for record in cursor.fetchall():
                 figures[record.pop("parent_id")].append(record)
             cursor.execute(
                 """
-                SELECT p.id AS parent_id, t.id, t.markdown, t.heading, t.caption, t.context
+                SELECT
+                    p.id AS parent_id,
+                    t.id,
+                    t.markdown,
+                    t.heading,
+                    t.caption,
+                    t.context,
+                    t.bounding_boxes
                 FROM parents AS p
                 JOIN tables AS t
                   ON t.doc_id = p.doc_id AND t.id = ANY(p.table_ids)
@@ -421,14 +476,16 @@ def _load_evidence_by_references(references: list[dict[str, Any]]) -> list[dict[
                 """,
                 (parent_ids,),
             )
-            tables: dict[str, list[dict[str, Any]]] = {parent_id: [] for parent_id in parent_ids}
+            tables: dict[str, list[dict[str, Any]]] = {
+                parent_id: [] for parent_id in parent_ids
+            }
             for record in cursor.fetchall():
                 tables[record.pop("parent_id")].append(record)
             table_chunks: dict[str, dict[str, Any]] = {}
             if table_chunk_ids:
                 cursor.execute(
                     """
-                    SELECT id, table_id, row_start, row_end, text_with_context
+                    SELECT id, table_id, row_start, row_end, text_with_context, page_numbers
                     FROM table_chunks
                     WHERE id = ANY(%s)
                     """,
@@ -444,8 +501,11 @@ def _load_evidence_by_references(references: list[dict[str, Any]]) -> list[dict[
         hydrated.append(
             {
                 **reference,
-                "child_text": child["text_with_context"],
+                "document_name": _display_document_name(str(parent["source_path"])),
+                "child_text": _page_grounded_child_text(child["text_with_context"]),
+                "page_numbers": list(child["page_numbers"] or []),
                 "parent_text": parent["parent_text"],
+                "parent_page_numbers": list(parent["page_numbers"] or []),
                 "figures": figures.get(parent["id"], []),
                 "tables": tables.get(parent["id"], []),
                 "matched_table_chunks": [
@@ -460,7 +520,9 @@ def _load_evidence_by_references(references: list[dict[str, Any]]) -> list[dict[
 
 def _load_mcp_results(references: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Hydrate stored tool payloads only while generating the answer."""
-    result_ids = [item["tool_result_id"] for item in references if "tool_result_id" in item]
+    result_ids = [
+        item["tool_result_id"] for item in references if "tool_result_id" in item
+    ]
     if not result_ids:
         return []
     psycopg = _psycopg()
@@ -472,6 +534,76 @@ def _load_mcp_results(references: list[dict[str, Any]]) -> list[dict[str, Any]]:
             )
             results = {record["id"]: record for record in cursor.fetchall()}
     return [results[result_id] for result_id in result_ids if result_id in results]
+
+
+def _page_grounded_child_text(text_with_context: str) -> str:
+    """Remove the page-less global summary before using a child as cited evidence."""
+    summary_prefix = "Document summary:"
+    if not text_with_context.startswith(summary_prefix):
+        return text_with_context
+    _, separator, child_text = text_with_context.partition("\n\n")
+    return child_text if separator else ""
+
+
+def _display_document_name(source_path: str) -> str:
+    """Hide Open WebUI's opaque upload prefix from human-facing citations."""
+    return OPENWEBUI_UPLOAD_PREFIX.sub("", Path(source_path).name)
+
+
+def _document_evidence_pages(evidence: list[dict[str, Any]]) -> set[int]:
+    """Collect every page number that the answer is allowed to cite."""
+    pages: set[int] = set()
+    for item in evidence:
+        pages.update(int(page) for page in item.get("page_numbers", []))
+        pages.update(int(page) for page in item.get("parent_page_numbers", []))
+        for table_chunk in item.get("matched_table_chunks", []):
+            pages.update(int(page) for page in table_chunk.get("page_numbers", []))
+        for asset in [*item.get("figures", []), *item.get("tables", [])]:
+            for bounding_box in asset.get("bounding_boxes", []):
+                page_no = bounding_box.get("page_no")
+                if isinstance(page_no, int):
+                    pages.add(page_no)
+    return pages
+
+
+def _document_evidence_pages_by_name(
+    evidence: list[dict[str, Any]],
+) -> dict[str, set[int]]:
+    """Group explicit page provenance by source filename for visible answer citations."""
+    pages_by_name: dict[str, set[int]] = {}
+    for item in evidence:
+        document_name = item.get("document_name")
+        if not isinstance(document_name, str) or not document_name:
+            continue
+        pages_by_name.setdefault(document_name, set()).update(
+            _document_evidence_pages([item])
+        )
+    return {name: pages for name, pages in pages_by_name.items() if pages}
+
+
+def _source_citations_are_valid(
+    answer: str, allowed_pages_by_name: dict[str, set[int]]
+) -> bool:
+    """Require visible source citations and reject unavailable document-page references."""
+    citations = list(SOURCE_CITATION_PATTERN.finditer(answer))
+    if not citations:
+        return False
+    cited_pages_by_name: dict[str, set[int]] = {}
+    for citation in citations:
+        document_name = citation.group("document").strip()
+        cited_pages = cited_pages_by_name.setdefault(document_name, set())
+        for start, end in re.findall(
+            r"(\d+)(?:\s*[-–]\s*(\d+))?", citation.group("pages")
+        ):
+            first_page = int(start)
+            last_page = int(end or start)
+            if first_page > last_page:
+                return False
+            cited_pages.update(range(first_page, last_page + 1))
+    return all(
+        bool(pages) and pages <= allowed_pages_by_name.get(document_name, set())
+        for document_name, pages in cited_pages_by_name.items()
+    )
 
 
 def _extract_facts(prompt: str, response: str) -> UserFactExtraction:
@@ -488,7 +620,10 @@ def _extract_facts(prompt: str, response: str) -> UserFactExtraction:
                     "Return an empty facts list when there are no such facts."
                 ),
             },
-            {"role": "user", "content": f"User prompt:\n{prompt}\n\nAssistant response:\n{response}"},
+            {
+                "role": "user",
+                "content": f"User prompt:\n{prompt}\n\nAssistant response:\n{response}",
+            },
         ],
     )
     parsed = completion.choices[0].message.parsed
@@ -511,33 +646,67 @@ def generate_answer_activity(
     mcp_results = _load_mcp_results(mcp_result_references)
     if not evidence and not mcp_results:
         raise _non_retryable("Grounded evidence is required to generate an answer.")
+    messages_payload = [
+        {
+            "role": "system",
+            "content": (
+                "You are Morpheus, a conversational assistant. Answer the current question "
+                "using the supplied document and web evidence, while respecting relevant "
+                "conversation context. Clearly distinguish uploaded-document facts from web "
+                "facts. Every factual claim derived from uploaded-document evidence must end "
+                "with a visible inline source citation using the exact supplied filename and "
+                "page number, for example [Source: handbook.pdf, p. 12] or "
+                "[Source: handbook.pdf, pp. 12–13]. Do not use HTML tags, Markdown footnotes, "
+                "or numbered [1] citations. Use the narrowest page "
+                "set that supports the claim: table chunk page_numbers for table facts, figure "
+                "bounding-box page_no for figure facts, child page_numbers for child facts, "
+                "and parent_page_numbers only when necessary. Never infer a page number. "
+                "Do not invent citations, facts, or web results. If a source URL is present "
+                "in web evidence, cite it naturally."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Question:\n{query}\n\n"
+                f"Conversation:\n{json.dumps(messages[-12:], ensure_ascii=False)}\n\n"
+                f"Grounded document evidence:\n{json.dumps(evidence, ensure_ascii=False)}\n\n"
+                f"Web evidence:\n{json.dumps(mcp_results, ensure_ascii=False)}"
+            ),
+        },
+    ]
     completion = llm_client.chat.completions.create(
         model=DEFAULT_MODEL,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are Morpheus, a conversational assistant. Answer the current question "
-                    "using the supplied document and web evidence, while respecting relevant "
-                    "conversation context. Clearly distinguish uploaded-document facts from web "
-                    "facts. Do not invent citations, facts, or web results. If a source URL is "
-                    "present in web evidence, cite it naturally."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Question:\n{query}\n\n"
-                    f"Conversation:\n{json.dumps(messages[-12:], ensure_ascii=False)}\n\n"
-                    f"Grounded document evidence:\n{json.dumps(evidence, ensure_ascii=False)}\n\n"
-                    f"Web evidence:\n{json.dumps(mcp_results, ensure_ascii=False)}"
-                ),
-            },
-        ],
+        messages=messages_payload,
     )
     answer = completion.choices[0].message.content
     if not answer:
         raise ValueError("Gemini did not return an answer.")
+    allowed_pages_by_name = _document_evidence_pages_by_name(evidence)
+    if allowed_pages_by_name and not _source_citations_are_valid(
+        answer, allowed_pages_by_name
+    ):
+        repair = llm_client.chat.completions.create(
+            model=DEFAULT_MODEL,
+            messages=[
+                *messages_payload,
+                {"role": "assistant", "content": answer},
+                {
+                    "role": "user",
+                    "content": (
+                        "Revise the draft so every uploaded-document factual claim ends with a "
+                        "visible inline citation in the form [Source: filename, p. 12]. Do not "
+                        "use HTML, Markdown footnotes, or numbered citations. Use only this "
+                        "document-page map: "
+                        f"{ {name: sorted(pages) for name, pages in allowed_pages_by_name.items()} }. "
+                        "Return only the revised answer."
+                    ),
+                },
+            ],
+        )
+        answer = repair.choices[0].message.content
+        if not answer or not _source_citations_are_valid(answer, allowed_pages_by_name):
+            raise ValueError("Gemini did not produce valid document-source citations.")
     logger.info(
         "Grounded answer generated",
         extra={"evidence_count": len(evidence), "mcp_result_count": len(mcp_results)},
@@ -593,7 +762,9 @@ def extract_user_facts_activity(user_id: str, prompt: str, response: str) -> boo
     try:
         extraction = _extract_facts(prompt, response)
     except (ValidationError, ValueError) as error:
-        raise _non_retryable("Could not validate Gemini structured user facts.") from error
+        raise _non_retryable(
+            "Could not validate Gemini structured user facts."
+        ) from error
     if not extraction.facts:
         logger.info("No durable user facts extracted", extra={"user_id": user_id})
         return False
@@ -615,5 +786,8 @@ def extract_user_facts_activity(user_id: str, prompt: str, response: str) -> boo
                     for fact in extraction.facts
                 ],
             )
-    logger.info("User facts upserted", extra={"user_id": user_id, "count": len(extraction.facts)})
+    logger.info(
+        "User facts upserted",
+        extra={"user_id": user_id, "count": len(extraction.facts)},
+    )
     return True

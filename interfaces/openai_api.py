@@ -2,19 +2,25 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+import threading
 import time
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 from uuid import uuid4
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from temporalio.client import Client
 
 from ingestion.doc_processor import document_id_for_file, process_document
-from retrieval.pg_engine import attach_documents_to_session, document_ingestion_stats, ingest_bundle
+from retrieval.pg_engine import (
+    attach_documents_to_session,
+    document_ingestion_stats,
+    ingest_bundle,
+)
 from security import guardrails
 
 
@@ -29,6 +35,11 @@ MAX_UPLOAD_FILES = int(os.getenv("MAX_UPLOAD_FILES", "10"))
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
 
 app = FastAPI(title="Morpheus OpenAI-Compatible API", version="0.1.0")
+UploadProgressCallback = Callable[[int, str, dict[str, Any]], None]
+_UPLOAD_JOBS: dict[str, dict[str, Any]] = {}
+_UPLOAD_JOBS_LOCK = threading.Lock()
+# OcrMac uses Apple Vision/MPS resources that are not safe for concurrent Docling jobs.
+_UPLOAD_PROCESSING_LOCK = threading.Lock()
 
 
 class ClarificationSignalRequest(BaseModel):
@@ -67,18 +78,34 @@ class DocumentUploadResponse(BaseModel):
     documents: list[UploadedDocumentResult]
 
 
+class DocumentUploadJobResponse(BaseModel):
+    """Expose background PDF ingestion progress to polling user interfaces."""
+
+    job_id: str
+    status: Literal["queued", "processing", "completed", "failed"]
+    progress: int = Field(ge=0, le=100)
+    stage: str
+    details: dict[str, Any] = Field(default_factory=dict)
+    documents: list[UploadedDocumentResult] = Field(default_factory=list)
+    error: str | None = None
+
+
 def _message_content(message: dict[str, Any]) -> str:
     """Validate and return one text OpenAI chat message content value."""
     content = message.get("content")
     if not isinstance(content, str) or not content.strip():
         raise HTTPException(
             status_code=422,
-            detail={"error": {"message": "Each message must have non-empty text content."}},
+            detail={
+                "error": {"message": "Each message must have non-empty text content."}
+            },
         )
     return content
 
 
-def _sanitize_messages(messages: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
+def _sanitize_messages(
+    messages: list[dict[str, Any]],
+) -> tuple[str, list[dict[str, Any]]]:
     """Run the security boundary on every user turn before Temporal receives it."""
     if not messages:
         raise HTTPException(
@@ -115,8 +142,8 @@ def _sanitize_messages(messages: list[dict[str, Any]]) -> tuple[str, list[dict[s
 
 
 def _workflow_id(user_id: str, session_id: str) -> str:
-    """Keep all gateway routes aligned with the workflow creation identifier."""
-    return f"wf-{user_id}-{session_id}"
+    """Create one unique workflow identity while retaining the chat scope in its name."""
+    return f"wf-{user_id}-{session_id}-{uuid4().hex}"
 
 
 async def _save_uploaded_pdf(upload: UploadFile) -> tuple[str, Path]:
@@ -125,19 +152,34 @@ async def _save_uploaded_pdf(upload: UploadFile) -> tuple[str, Path]:
     if not original_filename.lower().endswith(".pdf"):
         raise HTTPException(
             status_code=422,
-            detail={"error": {"message": "Only PDF uploads are supported.", "type": "invalid_file"}},
+            detail={
+                "error": {
+                    "message": "Only PDF uploads are supported.",
+                    "type": "invalid_file",
+                }
+            },
         )
     contents = await upload.read(MAX_UPLOAD_BYTES + 1)
     await upload.close()
     if len(contents) > MAX_UPLOAD_BYTES:
         raise HTTPException(
             status_code=413,
-            detail={"error": {"message": "Uploaded PDF exceeds the size limit.", "type": "file_too_large"}},
+            detail={
+                "error": {
+                    "message": "Uploaded PDF exceeds the size limit.",
+                    "type": "file_too_large",
+                }
+            },
         )
     if not contents.startswith(b"%PDF-"):
         raise HTTPException(
             status_code=422,
-            detail={"error": {"message": "Uploaded file is not a valid PDF.", "type": "invalid_file"}},
+            detail={
+                "error": {
+                    "message": "Uploaded file is not a valid PDF.",
+                    "type": "invalid_file",
+                }
+            },
         )
 
     upload_directory = UPLOAD_DIRECTORY / uuid4().hex
@@ -146,12 +188,202 @@ async def _save_uploaded_pdf(upload: UploadFile) -> tuple[str, Path]:
     try:
         saved_path.write_bytes(contents)
     except OSError as error:
-        logger.exception("Unable to persist uploaded PDF", extra={"filename": original_filename})
+        logger.exception(
+            "Unable to persist uploaded PDF", extra={"filename": original_filename}
+        )
         raise HTTPException(
             status_code=500,
-            detail={"error": {"message": "Unable to store uploaded PDF.", "type": "storage_error"}},
+            detail={
+                "error": {
+                    "message": "Unable to store uploaded PDF.",
+                    "type": "storage_error",
+                }
+            },
         ) from error
     return original_filename, saved_path
+
+
+def _update_upload_job(job_id: str, **updates: Any) -> None:
+    """Apply one thread-safe, monotonic update to an in-process upload job."""
+    with _UPLOAD_JOBS_LOCK:
+        job = _UPLOAD_JOBS[job_id]
+        if "progress" in updates:
+            updates["progress"] = max(int(job["progress"]), int(updates["progress"]))
+        job.update(updates)
+
+
+def _upload_job_snapshot(job_id: str) -> DocumentUploadJobResponse:
+    """Return a validated copy of one upload job or a stable 404 response."""
+    with _UPLOAD_JOBS_LOCK:
+        job = _UPLOAD_JOBS.get(job_id)
+        snapshot = dict(job) if job is not None else None
+    if snapshot is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": {"message": "Upload job was not found.", "type": "not_found"}
+            },
+        )
+    return DocumentUploadJobResponse.model_validate(snapshot)
+
+
+def _process_saved_documents(
+    saved_uploads: list[tuple[str, Path]],
+    user: str,
+    chat_id: str,
+    progress_callback: UploadProgressCallback | None = None,
+) -> list[UploadedDocumentResult]:
+    """Preprocess, store, and attach saved PDFs while reporting completed work."""
+    results: list[UploadedDocumentResult] = []
+    total_files = len(saved_uploads)
+
+    for file_index, (original_filename, saved_path) in enumerate(saved_uploads):
+
+        def report_file_progress(
+            percent: int,
+            stage: str,
+            details: dict[str, Any],
+        ) -> None:
+            if progress_callback is None:
+                return
+            overall = round((file_index * 100 + percent) / total_files)
+            progress_callback(
+                overall,
+                stage,
+                {
+                    "filename": original_filename,
+                    "file_number": file_index + 1,
+                    "total_files": total_files,
+                    **details,
+                },
+            )
+
+        report_file_progress(1, "checking_existing_document", {})
+        document_id = document_id_for_file(saved_path)
+        existing_stats = document_ingestion_stats(document_id)
+        if existing_stats is not None:
+            saved_path.unlink(missing_ok=True)
+            try:
+                saved_path.parent.rmdir()
+            except OSError:
+                pass
+            results.append(
+                UploadedDocumentResult(
+                    filename=original_filename,
+                    document_id=document_id,
+                    status="already_ingested",
+                    **existing_stats,
+                )
+            )
+            report_file_progress(98, "reusing_existing_document", existing_stats)
+            logger.info(
+                "Skipped preprocessing for an already ingested PDF",
+                extra={
+                    "filename": original_filename,
+                    "document_id": document_id,
+                    **existing_stats,
+                },
+            )
+            continue
+
+        logger.info(
+            "Starting HTTP PDF ingestion", extra={"filename": original_filename}
+        )
+        try:
+            bundle = process_document(
+                str(saved_path),
+                progress_callback=lambda percent, stage, details: report_file_progress(
+                    round(percent * 0.7), stage, details
+                ),
+            )
+            stats = ingest_bundle(
+                bundle,
+                progress_callback=lambda percent, stage, details: report_file_progress(
+                    70 + round(percent * 0.28), stage, details
+                ),
+            )
+        except Exception:
+            logger.exception(
+                "HTTP PDF ingestion failed", extra={"filename": original_filename}
+            )
+            raise
+        results.append(
+            UploadedDocumentResult(
+                filename=original_filename,
+                document_id=bundle["document"]["document_id"],
+                status="ingested",
+                **stats,
+            )
+        )
+        report_file_progress(98, "document_stored", stats)
+        logger.info(
+            "Completed HTTP PDF ingestion",
+            extra={
+                "filename": original_filename,
+                "document_id": bundle["document"]["document_id"],
+                **stats,
+            },
+        )
+
+    attach_documents_to_session(
+        user, chat_id, [result.document_id for result in results]
+    )
+    if progress_callback is not None:
+        progress_callback(
+            100,
+            "attached_to_chat",
+            {"completed_files": total_files, "total_files": total_files},
+        )
+    return results
+
+
+def _run_upload_job(
+    job_id: str,
+    saved_uploads: list[tuple[str, Path]],
+    user: str,
+    chat_id: str,
+) -> None:
+    """Execute a background upload job and retain its latest pollable state."""
+    _update_upload_job(
+        job_id,
+        status="processing",
+        stage="waiting_for_document_processor",
+        progress=0,
+    )
+
+    def update_progress(percent: int, stage: str, details: dict[str, Any]) -> None:
+        _update_upload_job(job_id, progress=percent, stage=stage, details=details)
+
+    logger.info(
+        "Upload job waiting for exclusive document processor", extra={"job_id": job_id}
+    )
+    with _UPLOAD_PROCESSING_LOCK:
+        _update_upload_job(job_id, stage="starting", progress=0)
+        logger.info(
+            "Upload job acquired exclusive document processor", extra={"job_id": job_id}
+        )
+        try:
+            results = _process_saved_documents(
+                saved_uploads,
+                user,
+                chat_id,
+                progress_callback=update_progress,
+            )
+        except Exception:
+            _update_upload_job(
+                job_id,
+                status="failed",
+                stage="failed",
+                error="Document processing failed. Check the Morpheus service logs.",
+            )
+            return
+    _update_upload_job(
+        job_id,
+        status="completed",
+        progress=100,
+        stage="completed",
+        documents=[result.model_dump(mode="json") for result in results],
+    )
 
 
 async def _start_agent_workflow(
@@ -179,10 +411,17 @@ async def _workflow_state(workflow_id: str) -> WorkflowStateResponse:
         handle = client.get_workflow_handle(workflow_id)
         state = await handle.query("get_workflow_state")
     except Exception as error:
-        logger.exception("Temporal workflow state query failed", extra={"workflow_id": workflow_id})
+        logger.exception(
+            "Temporal workflow state query failed", extra={"workflow_id": workflow_id}
+        )
         raise HTTPException(
             status_code=404,
-            detail={"error": {"message": "Workflow was not found or is unavailable.", "type": "not_found"}},
+            detail={
+                "error": {
+                    "message": "Workflow was not found or is unavailable.",
+                    "type": "not_found",
+                }
+            },
         ) from error
 
     return WorkflowStateResponse(
@@ -204,7 +443,12 @@ async def upload_documents(
     if not files:
         raise HTTPException(
             status_code=422,
-            detail={"error": {"message": "At least one PDF file is required.", "type": "invalid_file"}},
+            detail={
+                "error": {
+                    "message": "At least one PDF file is required.",
+                    "type": "invalid_file",
+                }
+            },
         )
     if len(files) > MAX_UPLOAD_FILES:
         raise HTTPException(
@@ -217,69 +461,86 @@ async def upload_documents(
             },
         )
 
-    results: list[UploadedDocumentResult] = []
-    for upload in files:
-        original_filename, saved_path = await _save_uploaded_pdf(upload)
-        document_id = document_id_for_file(saved_path)
-        existing_stats = document_ingestion_stats(document_id)
-        if existing_stats is not None:
-            saved_path.unlink(missing_ok=True)
-            try:
-                saved_path.parent.rmdir()
-            except OSError:
-                pass
-            results.append(
-                UploadedDocumentResult(
-                    filename=original_filename,
-                    document_id=document_id,
-                    status="already_ingested",
-                    **existing_stats,
-                )
-            )
-            logger.info(
-                "Skipped preprocessing for an already ingested PDF",
-                extra={"filename": original_filename, "document_id": document_id, **existing_stats},
-            )
-            continue
-        logger.info("Starting HTTP PDF ingestion", extra={"filename": original_filename})
-        try:
-            bundle = process_document(str(saved_path))
-            stats = ingest_bundle(bundle)
-        except Exception as error:
-            logger.exception("HTTP PDF ingestion failed", extra={"filename": original_filename})
-            raise HTTPException(
-                status_code=500,
-                detail={"error": {"message": f"Failed to ingest {original_filename}.", "type": "ingestion_failed"}},
-            ) from error
-        results.append(
-            UploadedDocumentResult(
-                filename=original_filename,
-                document_id=bundle["document"]["document_id"],
-                status="ingested",
-                **stats,
-            )
-        )
-        logger.info(
-            "Completed HTTP PDF ingestion",
-            extra={"filename": original_filename, "document_id": bundle["document"]["document_id"], **stats},
-        )
+    saved_uploads = [await _save_uploaded_pdf(upload) for upload in files]
     try:
-        attach_documents_to_session(user, chat_id, [result.document_id for result in results])
-    except (OSError, RuntimeError, ValueError) as error:
+        results = await asyncio.to_thread(
+            _process_saved_documents,
+            saved_uploads,
+            user,
+            chat_id,
+        )
+    except Exception as error:
         logger.exception(
-            "Unable to attach uploaded documents to chat session",
-            extra={"user_id": user, "session_id": chat_id},
+            "Synchronous document upload failed", extra={"chat_id": chat_id}
         )
         raise HTTPException(
             status_code=500,
             detail={
                 "error": {
-                    "message": "Documents were ingested but could not be attached to this chat.",
-                    "type": "session_attachment_failed",
+                    "message": "Document ingestion failed.",
+                    "type": "ingestion_failed",
                 }
             },
         ) from error
     return DocumentUploadResponse(status="completed", documents=results)
+
+
+@app.post(
+    "/v1/documents/upload-jobs",
+    status_code=202,
+    response_model=DocumentUploadJobResponse,
+)
+async def start_document_upload_job(
+    background_tasks: BackgroundTasks,
+    files: list[UploadFile] = File(...),
+    user: str = Form("usr_local"),
+    chat_id: str = Form("sess_default"),
+) -> DocumentUploadJobResponse:
+    """Persist PDFs quickly and process them in a pollable background job."""
+    if not files:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": {
+                    "message": "At least one PDF file is required.",
+                    "type": "invalid_file",
+                }
+            },
+        )
+    if len(files) > MAX_UPLOAD_FILES:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": {
+                    "message": f"A maximum of {MAX_UPLOAD_FILES} PDFs can be uploaded at once.",
+                    "type": "too_many_files",
+                }
+            },
+        )
+
+    saved_uploads = [await _save_uploaded_pdf(upload) for upload in files]
+    job_id = f"upload-{uuid4()}"
+    with _UPLOAD_JOBS_LOCK:
+        _UPLOAD_JOBS[job_id] = {
+            "job_id": job_id,
+            "status": "queued",
+            "progress": 0,
+            "stage": "queued",
+            "details": {"total_files": len(saved_uploads)},
+            "documents": [],
+            "error": None,
+        }
+    background_tasks.add_task(_run_upload_job, job_id, saved_uploads, user, chat_id)
+    return _upload_job_snapshot(job_id)
+
+
+@app.get(
+    "/v1/documents/upload-jobs/{job_id}",
+    response_model=DocumentUploadJobResponse,
+)
+async def get_document_upload_job(job_id: str) -> DocumentUploadJobResponse:
+    """Return the latest completed-work percentage for one PDF upload job."""
+    return _upload_job_snapshot(job_id)
 
 
 @app.get("/v1/models")
@@ -312,10 +573,17 @@ async def chat_completions(body: dict[str, Any]) -> dict[str, Any]:
         )
         result = await handle.result()
     except Exception as error:
-        logger.exception("Temporal workflow execution failed", extra={"workflow_id": workflow_id})
+        logger.exception(
+            "Temporal workflow execution failed", extra={"workflow_id": workflow_id}
+        )
         raise HTTPException(
             status_code=503,
-            detail={"error": {"message": "Agent workflow is unavailable.", "type": "service_unavailable"}},
+            detail={
+                "error": {
+                    "message": "Agent workflow is unavailable.",
+                    "type": "service_unavailable",
+                }
+            },
         ) from error
 
     final_answer = str(result.get("final_answer", ""))
@@ -352,10 +620,18 @@ async def start_chat_workflow(body: dict[str, Any]) -> WorkflowStateResponse:
             latest_query, user_id, session_id, sanitized_messages
         )
     except Exception as error:
-        logger.exception("Temporal workflow start failed", extra={"user_id": user_id, "session_id": session_id})
+        logger.exception(
+            "Temporal workflow start failed",
+            extra={"user_id": user_id, "session_id": session_id},
+        )
         raise HTTPException(
             status_code=503,
-            detail={"error": {"message": "Agent workflow is unavailable.", "type": "service_unavailable"}},
+            detail={
+                "error": {
+                    "message": "Agent workflow is unavailable.",
+                    "type": "service_unavailable",
+                }
+            },
         ) from error
 
     return WorkflowStateResponse(workflow_id=workflow_id, status="started")
@@ -381,10 +657,17 @@ async def submit_clarification(
         handle = client.get_workflow_handle(workflow_id)
         await handle.signal("user_clarification_signal", request.choice)
     except Exception as error:
-        logger.exception("Temporal clarification signal failed", extra={"workflow_id": workflow_id})
+        logger.exception(
+            "Temporal clarification signal failed", extra={"workflow_id": workflow_id}
+        )
         raise HTTPException(
             status_code=404,
-            detail={"error": {"message": "Workflow was not found or is unavailable.", "type": "not_found"}},
+            detail={
+                "error": {
+                    "message": "Workflow was not found or is unavailable.",
+                    "type": "not_found",
+                }
+            },
         ) from error
 
     return await _workflow_state(workflow_id)

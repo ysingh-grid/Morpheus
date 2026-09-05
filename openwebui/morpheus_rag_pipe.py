@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import mimetypes
+import re
 import uuid
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -98,6 +99,11 @@ class Pipe:
         return f"{self.valves.MORPHEUS_API_BASE_URL.rstrip('/')}{path}"
 
     @staticmethod
+    def _remove_automatic_source_markers(answer: str) -> str:
+        """Remove legacy Open WebUI numeric markers from a Morpheus-owned answer."""
+        return re.sub(r"\s*\[\d+\](?=\s*(?:\[Source:|$|[.,;:]))", "", answer)
+
+    @staticmethod
     def _http_json(
         method: str,
         url: str,
@@ -112,13 +118,19 @@ class Pipe:
                 payload = response.read().decode("utf-8")
         except HTTPError as error:
             response_text = error.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"Morpheus gateway returned HTTP {error.code}: {response_text}") from error
+            raise RuntimeError(
+                f"Morpheus gateway returned HTTP {error.code}: {response_text}"
+            ) from error
         except URLError as error:
-            raise RuntimeError("Morpheus gateway is unreachable from Open WebUI.") from error
+            raise RuntimeError(
+                "Morpheus gateway is unreachable from Open WebUI."
+            ) from error
         try:
             decoded = json.loads(payload)
         except json.JSONDecodeError as error:
-            raise RuntimeError("Morpheus gateway returned an invalid JSON response.") from error
+            raise RuntimeError(
+                "Morpheus gateway returned an invalid JSON response."
+            ) from error
         if not isinstance(decoded, dict):
             raise RuntimeError("Morpheus gateway returned an unexpected JSON response.")
         return decoded
@@ -182,10 +194,55 @@ class Pipe:
         body_parts.append(f"--{boundary}--\r\n".encode())
         return await self._request_json(
             "POST",
-            "/documents/upload",
+            "/documents/upload-jobs",
             body=b"".join(body_parts),
             headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
         )
+
+    @staticmethod
+    def _upload_progress_text(state: dict[str, Any]) -> str:
+        """Render one compact, factual ingestion status for Open WebUI."""
+        progress = int(state.get("progress", 0))
+        stage = str(state.get("stage", "processing")).replace("_", " ")
+        details = state.get("details") if isinstance(state.get("details"), dict) else {}
+        filename = str(details.get("filename", "document"))
+        completed = details.get("completed")
+        total = details.get("total")
+        counter = (
+            f" ({completed}/{total})"
+            if completed is not None and total is not None
+            else ""
+        )
+        return f"{filename}: {progress}% — {stage}{counter}"
+
+    async def _wait_for_upload_job(
+        self,
+        initial_state: dict[str, Any],
+        emitter: EventEmitter | None,
+    ) -> dict[str, Any]:
+        """Poll one background ingestion job while emitting visible progress."""
+        job_id = initial_state.get("job_id")
+        if not job_id and isinstance(initial_state.get("documents"), list):
+            return initial_state
+        if not isinstance(job_id, str) or not job_id:
+            raise RuntimeError("Morpheus did not return an upload job identifier.")
+        state = initial_state
+        last_progress: tuple[int, str] | None = None
+        for _ in range(self.valves.MAX_STATUS_POLLS):
+            status = str(state.get("status", "unknown"))
+            progress_key = (int(state.get("progress", 0)), str(state.get("stage", "")))
+            if progress_key != last_progress:
+                await self._emit_status(emitter, self._upload_progress_text(state))
+                last_progress = progress_key
+            if status == "completed":
+                return state
+            if status == "failed":
+                raise RuntimeError(
+                    str(state.get("error") or "Document processing failed.")
+                )
+            await asyncio.sleep(self.valves.POLL_INTERVAL_SECONDS)
+            state = await self._request_json("GET", f"/documents/upload-jobs/{job_id}")
+        raise RuntimeError("Document processing timed out before completion.")
 
     @staticmethod
     def _confirmation_approved(result: Any) -> bool:
@@ -193,7 +250,9 @@ class Pipe:
         if isinstance(result, dict):
             if result.get("error"):
                 return False
-            return bool(result.get("confirmed", result.get("ok", result.get("result", False))))
+            return bool(
+                result.get("confirmed", result.get("ok", result.get("result", False)))
+            )
         return result is True
 
     async def pipe(
@@ -209,15 +268,21 @@ class Pipe:
     ) -> str:
         """Upload PDFs, run a durable workflow, and handle in-chat web-search approval."""
         messages = [
-            {"role": str(message.get("role", "user")), "content": self._content_to_text(message.get("content"))}
+            {
+                "role": str(message.get("role", "user")),
+                "content": self._content_to_text(message.get("content")),
+            }
             for message in body.get("messages", [])
-            if isinstance(message, dict) and self._content_to_text(message.get("content"))
+            if isinstance(message, dict)
+            and self._content_to_text(message.get("content"))
         ]
         if not messages or messages[-1]["role"] != "user":
             return "Please send a text question to Morpheus."
 
         user_id = str((__user__ or {}).get("id", "usr_openwebui"))
-        body_metadata = body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
+        body_metadata = (
+            body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
+        )
         metadata = __metadata__ if isinstance(__metadata__, dict) else body_metadata
         session_id = str(
             __chat_id__
@@ -232,7 +297,9 @@ class Pipe:
             return "Morpheus currently accepts PDF chat attachments only."
         uploaded_keys = self._uploaded_attachments_by_chat.setdefault(session_id, set())
         new_pdf_paths = [
-            path for path in pdf_paths if self._attachment_key(path) not in uploaded_keys
+            path
+            for path in pdf_paths
+            if self._attachment_key(path) not in uploaded_keys
         ]
         if new_pdf_paths:
             await self._emit_status(
@@ -240,14 +307,21 @@ class Pipe:
                 f"Uploading and preprocessing {len(new_pdf_paths)} new PDF document(s)…",
             )
             try:
-                upload_result = await self._upload_pdfs(new_pdf_paths, user_id, session_id)
+                upload_job = await self._upload_pdfs(new_pdf_paths, user_id, session_id)
+                upload_result = await self._wait_for_upload_job(
+                    upload_job, __event_emitter__
+                )
             except RuntimeError as error:
                 return f"Document upload failed: {error}"
             uploaded_keys.update(self._attachment_key(path) for path in new_pdf_paths)
             count = len(upload_result.get("documents", []))
-            await self._emit_status(__event_emitter__, f"Loaded {count} PDF document(s) into Morpheus.")
+            await self._emit_status(
+                __event_emitter__, f"Loaded {count} PDF document(s) into Morpheus."
+            )
 
-        await self._emit_status(__event_emitter__, "Morpheus is deciding how to respond…")
+        await self._emit_status(
+            __event_emitter__, "Morpheus is deciding how to respond…"
+        )
         try:
             workflow = await self._request_json(
                 "POST",
@@ -269,14 +343,31 @@ class Pipe:
                 return f"Morpheus workflow status failed: {error}"
             status = str(state.get("status", "unknown"))
             history = {
-                str(entry) for entry in state.get("execution_history", []) if isinstance(entry, str)
+                str(entry)
+                for entry in state.get("execution_history", [])
+                if isinstance(entry, str)
             }
-            if "pgvector_retrieval_started" in history and "pgvector_retrieval_started" not in emitted_history:
-                await self._emit_status(__event_emitter__, "Searching documents attached to this chat…")
-            if "mcp_web_search_started" in history and "mcp_web_search_started" not in emitted_history:
-                await self._emit_status(__event_emitter__, "Searching the web with Tavily…")
-            if "direct_answer_started" in history and "direct_answer_started" not in emitted_history:
-                await self._emit_status(__event_emitter__, "Responding conversationally…")
+            if (
+                "pgvector_retrieval_started" in history
+                and "pgvector_retrieval_started" not in emitted_history
+            ):
+                await self._emit_status(
+                    __event_emitter__, "Searching documents attached to this chat…"
+                )
+            if (
+                "mcp_web_search_started" in history
+                and "mcp_web_search_started" not in emitted_history
+            ):
+                await self._emit_status(
+                    __event_emitter__, "Searching the web with Tavily…"
+                )
+            if (
+                "direct_answer_started" in history
+                and "direct_answer_started" not in emitted_history
+            ):
+                await self._emit_status(
+                    __event_emitter__, "Responding conversationally…"
+                )
             emitted_history.update(history)
             if status == "awaiting_clarification":
                 if __event_call__ is None:
@@ -294,11 +385,19 @@ class Pipe:
                             },
                         }
                     )
-                    choice = "approve_web_search" if self._confirmation_approved(confirmation) else "cancel"
-                await self._emit_status(__event_emitter__, "Sending your web-search decision…")
+                    choice = (
+                        "approve_web_search"
+                        if self._confirmation_approved(confirmation)
+                        else "cancel"
+                    )
+                await self._emit_status(
+                    __event_emitter__, "Sending your web-search decision…"
+                )
                 try:
                     await self._request_json(
-                        "POST", f"/workflows/{workflow_id}/clarification", {"choice": choice}
+                        "POST",
+                        f"/workflows/{workflow_id}/clarification",
+                        {"choice": choice},
                     )
                 except RuntimeError as error:
                     return f"Morpheus could not apply your decision: {error}"
@@ -307,7 +406,9 @@ class Pipe:
                 if not answer:
                     empty_completed_polls += 1
                     if empty_completed_polls < 5:
-                        await self._emit_status(__event_emitter__, "Finalizing the answer…")
+                        await self._emit_status(
+                            __event_emitter__, "Finalizing the answer…"
+                        )
                         await asyncio.sleep(self.valves.POLL_INTERVAL_SECONDS)
                         continue
                     await self._emit_status(
@@ -316,13 +417,25 @@ class Pipe:
                         done=True,
                     )
                     return "Morpheus completed without a final answer."
-                await self._emit_status(__event_emitter__, "Morpheus workflow completed.", done=True)
-                return answer
-            elif status in {"not_found", "cancelled", "turn_limit_reached", "retrieval_failed", "answer_generation_failed"}:
+                await self._emit_status(
+                    __event_emitter__, "Morpheus workflow completed.", done=True
+                )
+                return self._remove_automatic_source_markers(answer)
+            elif status in {
+                "not_found",
+                "cancelled",
+                "turn_limit_reached",
+                "retrieval_failed",
+                "answer_generation_failed",
+            }:
                 answer = str(state.get("final_answer", "")).strip()
-                await self._emit_status(__event_emitter__, f"Morpheus workflow ended: {status}.", done=True)
+                await self._emit_status(
+                    __event_emitter__, f"Morpheus workflow ended: {status}.", done=True
+                )
                 return answer or f"Morpheus workflow ended with status: {status}."
             else:
-                await self._emit_status(__event_emitter__, f"Morpheus workflow status: {status}.")
+                await self._emit_status(
+                    __event_emitter__, f"Morpheus workflow status: {status}."
+                )
             await asyncio.sleep(self.valves.POLL_INTERVAL_SECONDS)
         return "Morpheus workflow timed out while waiting for a final answer."

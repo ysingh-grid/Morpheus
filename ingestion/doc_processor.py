@@ -8,7 +8,7 @@ import platform
 import re
 from io import BytesIO
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, Callable, TypedDict
 
 import tiktoken
 from docling.datamodel.base_models import InputFormat
@@ -27,6 +27,18 @@ SUMMARY_WORD_LIMIT = 50
 IMAGE_PLACEHOLDER = "<!-- image -->"
 FIGURE_REFERENCE_PATTERN = re.compile(r"\[Figure (figure-\d{3}):")
 TABLE_REFERENCE_PATTERN = re.compile(r"\[Table (table-\d{3})\]")
+ProgressCallback = Callable[[int, str, dict[str, Any]], None]
+
+
+def _report_progress(
+    callback: ProgressCallback | None,
+    percent: int,
+    stage: str,
+    **details: Any,
+) -> None:
+    """Publish bounded ingestion progress without coupling processing to an interface."""
+    if callback is not None:
+        callback(max(0, min(percent, 100)), stage, details)
 
 
 class ProcessedChunk(TypedDict):
@@ -43,6 +55,7 @@ class ParentBlock(TypedDict):
 
     parent_id: str
     parent_text: str
+    page_numbers: list[int]
     figure_ids: list[str]
     table_ids: list[str]
 
@@ -71,6 +84,7 @@ class TableChunk(TypedDict):
     row_start: int
     row_end: int
     text_with_context: str
+    page_numbers: list[int]
 
 
 class TableRecord(TypedDict):
@@ -162,7 +176,10 @@ def _ocrmac_options() -> OcrMacOptions:
 
 def _caption_image(image: object) -> str:
     """Generate a dense semantic caption for a Docling-extracted image."""
-    logger.info("Requesting semantic caption for extracted figure", extra={"image_size": getattr(image, "size", None)})
+    logger.info(
+        "Requesting semantic caption for extracted figure",
+        extra={"image_size": getattr(image, "size", None)},
+    )
     image_buffer = BytesIO()
     image.save(image_buffer, format="PNG")
     image_data = base64.b64encode(image_buffer.getvalue()).decode("ascii")
@@ -190,7 +207,9 @@ def _caption_image(image: object) -> str:
         ],
     )
     caption = response.choices[0].message.content.strip()
-    logger.info("Received semantic figure caption", extra={"caption_characters": len(caption)})
+    logger.info(
+        "Received semantic figure caption", extra={"caption_characters": len(caption)}
+    )
     return caption
 
 
@@ -205,19 +224,51 @@ def _bounding_boxes(item: object) -> list[dict[str, object]]:
     ]
 
 
-def _figure_metadata(document: object) -> tuple[list[Figure], int]:
+def _item_page_numbers(item: object) -> list[int]:
+    """Return ordered, unique source pages from one Docling item's provenance."""
+    return list(dict.fromkeys(int(provenance.page_no) for provenance in item.prov))
+
+
+def _asset_page_numbers(asset: Figure | TableRecord) -> set[int]:
+    """Return source pages recorded in a figure or table bounding-box list."""
+    return {
+        int(box["page_no"])
+        for box in asset["bounding_boxes"]
+        if isinstance(box.get("page_no"), int)
+    }
+
+
+def _figure_metadata(
+    document: object,
+    progress_callback: ProgressCallback | None = None,
+) -> tuple[list[Figure], int]:
     """Caption each extracted figure and retain its page-level bounding boxes."""
     figures: list[Figure] = []
-    detected_figures = 0
+    picture_items = [
+        item
+        for item, _ in document.iterate_items(traverse_pictures=True)
+        if isinstance(item, PictureItem)
+    ]
+    detected_figures = len(picture_items)
     logger.info("Scanning Docling document for figures")
-    for item, _ in document.iterate_items(traverse_pictures=True):
-        if not isinstance(item, PictureItem):
-            continue
-
-        detected_figures += 1
+    _report_progress(
+        progress_callback,
+        40,
+        "captioning_figures",
+        completed=0,
+        total=detected_figures,
+    )
+    for item_index, item in enumerate(picture_items, start=1):
         image = item.get_image(document)
         if image is None:
             logger.warning("Skipping figure because Docling did not provide image data")
+            _report_progress(
+                progress_callback,
+                40 + round(25 * item_index / max(detected_figures, 1)),
+                "captioning_figures",
+                completed=item_index,
+                total=detected_figures,
+            )
             continue
 
         bounding_boxes = _bounding_boxes(item)
@@ -228,10 +279,26 @@ def _figure_metadata(document: object) -> tuple[list[Figure], int]:
                 "bounding_boxes": bounding_boxes,
             }
         )
-        logger.info("Processed figure", extra={"figure_count": len(figures), "bounding_box_count": len(bounding_boxes)})
+        logger.info(
+            "Processed figure",
+            extra={
+                "figure_count": len(figures),
+                "bounding_box_count": len(bounding_boxes),
+            },
+        )
+        _report_progress(
+            progress_callback,
+            40 + round(25 * item_index / max(detected_figures, 1)),
+            "captioning_figures",
+            completed=item_index,
+            total=detected_figures,
+        )
     logger.info(
         "Completed figure extraction",
-        extra={"detected_figure_count": detected_figures, "captioned_figure_count": len(figures)},
+        extra={
+            "detected_figure_count": detected_figures,
+            "captioned_figure_count": len(figures),
+        },
     )
     return figures, detected_figures
 
@@ -245,7 +312,9 @@ def _table_rows(table: TableItem) -> tuple[list[str], list[tuple[int, str]]]:
 
     for cell in table.data.table_cells:
         for row_index in range(cell.start_row_offset_idx, cell.end_row_offset_idx):
-            for column_index in range(cell.start_col_offset_idx, cell.end_col_offset_idx):
+            for column_index in range(
+                cell.start_col_offset_idx, cell.end_col_offset_idx
+            ):
                 if not rows[row_index][column_index]:
                     rows[row_index][column_index] = cell.text
             if cell.column_header:
@@ -260,7 +329,12 @@ def _table_rows(table: TableItem) -> tuple[list[str], list[tuple[int, str]]]:
     return header, data_rows
 
 
-def _table_chunk_records(table_id: str, table: TableItem, context: str) -> list[TableChunk]:
+def _table_chunk_records(
+    table_id: str,
+    table: TableItem,
+    context: str,
+    page_numbers: list[int],
+) -> list[TableChunk]:
     """Create token-bounded table chunks without splitting a table row."""
     header_rows, data_rows = _table_rows(table)
     header_text = "\n".join(f"Headers: {row}" for row in header_rows)
@@ -280,7 +354,10 @@ def _table_chunk_records(table_id: str, table: TableItem, context: str) -> list[
                 "table_id": table_id,
                 "row_start": rows[0][0],
                 "row_end": rows[-1][0],
-                "text_with_context": "\n".join(part for part in (prefix, row_text) if part),
+                "text_with_context": "\n".join(
+                    part for part in (prefix, row_text) if part
+                ),
+                "page_numbers": page_numbers,
             }
         )
 
@@ -290,7 +367,10 @@ def _table_chunk_records(table_id: str, table: TableItem, context: str) -> list[
             part
             for part in (
                 prefix,
-                "\n".join(f"Row {row_index}: {row_text}" for row_index, row_text in candidate_rows),
+                "\n".join(
+                    f"Row {row_index}: {row_text}"
+                    for row_index, row_text in candidate_rows
+                ),
             )
             if part
         )
@@ -309,12 +389,15 @@ def _table_chunk_records(table_id: str, table: TableItem, context: str) -> list[
                 "row_start": 0,
                 "row_end": 0,
                 "text_with_context": prefix,
+                "page_numbers": page_numbers,
             }
         )
     return chunks
 
 
-def _table_metadata(document: object) -> tuple[list[TableRecord], list[TableChunk], int]:
+def _table_metadata(
+    document: object,
+) -> tuple[list[TableRecord], list[TableChunk], int]:
     """Extract canonical tables with native heading and caption context."""
     tables: list[TableRecord] = []
     table_chunks: list[TableChunk] = []
@@ -340,7 +423,10 @@ def _table_metadata(document: object) -> tuple[list[TableRecord], list[TableChun
         if not caption and previous_text:
             context_parts.append(previous_text)
         context = "\n".join(part for part in context_parts if part)
-        record_chunks = _table_chunk_records(table_id, item, context)
+        table_pages = _item_page_numbers(item)
+        if not table_pages and len(document.pages) <= 1:
+            table_pages = [1]
+        record_chunks = _table_chunk_records(table_id, item, context, table_pages)
         table_chunks.extend(record_chunks)
         tables.append(
             {
@@ -358,7 +444,10 @@ def _table_metadata(document: object) -> tuple[list[TableRecord], list[TableChun
 
     logger.info(
         "Completed table extraction",
-        extra={"detected_table_count": detected_tables, "table_chunk_count": len(table_chunks)},
+        extra={
+            "detected_table_count": detected_tables,
+            "table_chunk_count": len(table_chunks),
+        },
     )
     return tables, table_chunks, detected_tables
 
@@ -385,10 +474,73 @@ def _replace_table_markdown(markdown: str, tables: list[TableRecord]) -> str:
     for table in tables:
         table_markdown = table["markdown"]
         if table_markdown not in markdown:
-            logger.warning("Could not place table reference in Markdown", extra={"table_id": table["table_id"]})
+            logger.warning(
+                "Could not place table reference in Markdown",
+                extra={"table_id": table["table_id"]},
+            )
             continue
-        markdown = markdown.replace(table_markdown, f"\n\n[Table {table['table_id']}]\n\n", 1)
+        markdown = markdown.replace(
+            table_markdown, f"\n\n[Table {table['table_id']}]\n\n", 1
+        )
     return markdown
+
+
+def _page_markdown_sections(
+    document: object,
+    figures: list[Figure],
+    tables: list[TableRecord],
+) -> list[tuple[int, str]]:
+    """Export structured Markdown per source page before token chunking."""
+    sections: list[tuple[int, str]] = []
+    for page_no in sorted(int(number) for number in document.pages):
+        page_markdown = document.export_to_markdown(
+            image_placeholder=IMAGE_PLACEHOLDER,
+            traverse_pictures=True,
+            page_no=page_no,
+        )
+        page_figures = [
+            figure for figure in figures if page_no in _asset_page_numbers(figure)
+        ]
+        page_tables = [
+            table for table in tables if page_no in _asset_page_numbers(table)
+        ]
+        page_markdown = _replace_image_placeholders(page_markdown, page_figures)
+        page_markdown = _replace_table_markdown(page_markdown, page_tables)
+        if page_markdown.strip():
+            sections.append((page_no, page_markdown))
+    if sections:
+        return sections
+
+    markdown = document.export_to_markdown(
+        image_placeholder=IMAGE_PLACEHOLDER,
+        traverse_pictures=True,
+    )
+    return [
+        (
+            1,
+            _replace_table_markdown(
+                _replace_image_placeholders(markdown, figures), tables
+            ),
+        )
+    ]
+
+
+def _page_token_stream(sections: list[tuple[int, str]]) -> list[tuple[int, int]]:
+    """Associate every encoded Markdown token with its source page."""
+    encoding = _encoding()
+    stream: list[tuple[int, int]] = []
+    for index, (page_no, text) in enumerate(sections):
+        page_text = f"\n\n{text}" if index else text
+        stream.extend((token, page_no) for token in encoding.encode(page_text))
+    return stream
+
+
+def _decode_page_chunk(token_stream: list[tuple[int, int]]) -> tuple[str, list[int]]:
+    """Decode one token slice together with its ordered source-page set."""
+    encoding = _encoding()
+    text = encoding.decode([token for token, _ in token_stream])
+    page_numbers = list(dict.fromkeys(page_no for _, page_no in token_stream))
+    return text, page_numbers
 
 
 def _figure_ids_in_parent(parent_text: str) -> list[str]:
@@ -411,9 +563,13 @@ def _validation_manifest(
     markdown: str,
 ) -> ValidationManifest:
     """Build integrity results and fail-fast errors for the normalized document bundle."""
-    assigned_figures = {figure_id for parent in parents for figure_id in parent["figure_ids"]}
+    assigned_figures = {
+        figure_id for parent in parents for figure_id in parent["figure_ids"]
+    }
     unassigned_figures = {figure["figure_id"] for figure in figures} - assigned_figures
-    assigned_tables = {table_id for parent in parents for table_id in parent["table_ids"]}
+    assigned_tables = {
+        table_id for parent in parents for table_id in parent["table_ids"]
+    }
     unassigned_tables = {table["table_id"] for table in tables} - assigned_tables
     remaining_placeholders = markdown.count(IMAGE_PLACEHOLDER)
     errors: list[str] = []
@@ -431,19 +587,25 @@ def _validation_manifest(
         warnings.append("One or more tables are not linked to a parent block.")
     if any(not table["chunk_ids"] for table in tables):
         warnings.append("One or more tables have no row-safe retrieval chunks.")
-    warnings.append("Page-level OCR emptiness is not exposed by the configured OcrMac pipeline.")
+    warnings.append(
+        "Page-level OCR emptiness is not exposed by the configured OcrMac pipeline."
+    )
 
     return {
         "pages": len(document.pages),
         "text_items": sum(
-            1 for item, _ in document.iterate_items(traverse_pictures=True) if isinstance(item, TextItem)
+            1
+            for item, _ in document.iterate_items(traverse_pictures=True)
+            if isinstance(item, TextItem)
         ),
         "tables_detected": detected_tables,
         "tables_exported": len(tables),
         "tables_unassigned": len(unassigned_tables),
         "figures_detected": detected_figures,
         "figures_captioned": len(figures),
-        "figures_with_bounding_boxes": sum(bool(figure["bounding_boxes"]) for figure in figures),
+        "figures_with_bounding_boxes": sum(
+            bool(figure["bounding_boxes"]) for figure in figures
+        ),
         "figures_unassigned": len(unassigned_figures),
         "remaining_image_placeholders": remaining_placeholders,
         "ocr_empty_pages": [],
@@ -456,7 +618,10 @@ def _validation_manifest(
 
 def _summarize_document(markdown: str) -> str:
     """Create the required concise, global context for every retrieval chunk."""
-    logger.info("Requesting global document summary", extra={"markdown_characters": len(markdown)})
+    logger.info(
+        "Requesting global document summary",
+        extra={"markdown_characters": len(markdown)},
+    )
     response = llm_client.chat.completions.create(
         model=DEFAULT_MODEL,
         messages=[
@@ -473,7 +638,10 @@ def _summarize_document(markdown: str) -> str:
     summary = response.choices[0].message.content.strip()
     logger.info(
         "Received global document summary",
-        extra={"summary_characters": len(summary), "summary_words": len(summary.split())},
+        extra={
+            "summary_characters": len(summary),
+            "summary_words": len(summary.split()),
+        },
     )
     return summary
 
@@ -482,12 +650,25 @@ def _split_tokens(text: str, limit: int) -> list[str]:
     """Split text into bounded token groups without discarding content."""
     encoding = _encoding()
     tokens = encoding.encode(text)
-    chunks = [encoding.decode(tokens[index : index + limit]) for index in range(0, len(tokens), limit)]
-    logger.debug("Split text into token-bounded chunks", extra={"token_count": len(tokens), "chunk_count": len(chunks), "token_limit": limit})
+    chunks = [
+        encoding.decode(tokens[index : index + limit])
+        for index in range(0, len(tokens), limit)
+    ]
+    logger.debug(
+        "Split text into token-bounded chunks",
+        extra={
+            "token_count": len(tokens),
+            "chunk_count": len(chunks),
+            "token_limit": limit,
+        },
+    )
     return chunks
 
 
-def process_document(file_path: str) -> ProcessedDocument:
+def process_document(
+    file_path: str,
+    progress_callback: ProgressCallback | None = None,
+) -> ProcessedDocument:
     """Convert one local document into normalized parent and child retrieval records.
 
     Args:
@@ -498,9 +679,13 @@ def process_document(file_path: str) -> ProcessedDocument:
         the document summary prepended to each child's retrieval text.
     """
     source_path = Path(file_path)
+    _report_progress(progress_callback, 0, "starting_preprocessing")
     logger.info(
         "Starting document ingestion",
-        extra={"source_path": str(source_path), "source_bytes": source_path.stat().st_size},
+        extra={
+            "source_path": str(source_path),
+            "source_bytes": source_path.stat().st_size,
+        },
     )
     pdf_pipeline_options = PdfPipelineOptions()
     pdf_pipeline_options.do_ocr = True
@@ -513,44 +698,79 @@ def process_document(file_path: str) -> ProcessedDocument:
         }
     )
     logger.info("Enabled Docling PDF image generation and native OcrMac")
+    _report_progress(progress_callback, 5, "converting_with_docling")
     conversion = converter.convert(source_path)
     document = conversion.document
     logger.info("Docling conversion completed", extra={"source_path": str(source_path)})
-    figures, detected_figures = _figure_metadata(document)
+    _report_progress(progress_callback, 40, "docling_conversion_complete")
+    figures, detected_figures = _figure_metadata(document, progress_callback)
+    _report_progress(progress_callback, 66, "extracting_tables")
     tables, table_chunks, detected_tables = _table_metadata(document)
-    markdown = document.export_to_markdown(
-        image_placeholder=IMAGE_PLACEHOLDER,
-        traverse_pictures=True,
+    _report_progress(
+        progress_callback,
+        73,
+        "tables_extracted",
+        completed=detected_tables,
+        total=detected_tables,
     )
-    logger.info("Exported Docling document to Markdown", extra={"markdown_characters": len(markdown)})
-    markdown = _replace_image_placeholders(markdown, figures)
-    markdown = _replace_table_markdown(markdown, tables)
+    page_sections = _page_markdown_sections(document, figures, tables)
+    markdown = "\n\n".join(text for _, text in page_sections)
+    logger.info(
+        "Exported Docling document to Markdown",
+        extra={"markdown_characters": len(markdown)},
+    )
+    _report_progress(progress_callback, 77, "structured_markdown_exported")
+    _report_progress(progress_callback, 80, "generating_document_summary")
     summary = _summarize_document(markdown)
+    _report_progress(progress_callback, 87, "document_summary_generated")
     document_id = document_id_for_file(source_path)
 
     chunks: list[ProcessedChunk] = []
     parents: list[ParentBlock] = []
-    parent_blocks = _split_tokens(markdown, PARENT_TOKEN_LIMIT)
-    logger.info("Created parent blocks", extra={"parent_count": len(parent_blocks)})
-    for parent_index, parent_text in enumerate(parent_blocks):
+    document_tokens = _page_token_stream(page_sections)
+    parent_token_blocks = [
+        document_tokens[index : index + PARENT_TOKEN_LIMIT]
+        for index in range(0, len(document_tokens), PARENT_TOKEN_LIMIT)
+    ]
+    logger.info(
+        "Created parent blocks", extra={"parent_count": len(parent_token_blocks)}
+    )
+    for parent_index, parent_tokens in enumerate(parent_token_blocks):
+        parent_text, parent_pages = _decode_page_chunk(parent_tokens)
         parent_id = f"{document_id}-parent-{parent_index}"
         parents.append(
             {
                 "parent_id": parent_id,
                 "parent_text": parent_text,
+                "page_numbers": parent_pages,
                 "figure_ids": _figure_ids_in_parent(parent_text),
                 "table_ids": _table_ids_in_parent(parent_text),
             }
         )
-        for child_index, child_text in enumerate(_split_tokens(parent_text, CHILD_TOKEN_LIMIT)):
+        child_token_blocks = [
+            parent_tokens[index : index + CHILD_TOKEN_LIMIT]
+            for index in range(0, len(parent_tokens), CHILD_TOKEN_LIMIT)
+        ]
+        for child_index, child_tokens in enumerate(child_token_blocks):
+            child_text, child_pages = _decode_page_chunk(child_tokens)
             chunks.append(
                 {
                     "chunk_id": f"{parent_id}-child-{child_index}",
                     "parent_id": parent_id,
                     "text_with_context": f"Document summary: {summary}\n\n{child_text}",
-                    "metadata": {"document_id": document_id},
-            }
-        )
+                    "metadata": {
+                        "document_id": document_id,
+                        "page_numbers": child_pages,
+                    },
+                }
+            )
+    _report_progress(
+        progress_callback,
+        95,
+        "hierarchical_chunks_created",
+        parents=len(parents),
+        children=len(chunks),
+    )
     validation = _validation_manifest(
         document=document,
         figures=figures,
@@ -561,15 +781,34 @@ def process_document(file_path: str) -> ProcessedDocument:
         markdown=markdown,
     )
     if validation["errors"]:
-        logger.error("Document validation failed", extra={"errors": validation["errors"]})
-        raise RuntimeError("Document validation failed: " + " ".join(validation["errors"]))
+        logger.error(
+            "Document validation failed", extra={"errors": validation["errors"]}
+        )
+        raise RuntimeError(
+            "Document validation failed: " + " ".join(validation["errors"])
+        )
     if validation["warnings"]:
-        logger.warning("Document validation warnings", extra={"warnings": validation["warnings"]})
+        logger.warning(
+            "Document validation warnings", extra={"warnings": validation["warnings"]}
+        )
     logger.info(
         "Completed document ingestion",
-        extra={"source_path": str(source_path), "parent_count": len(parents), "child_count": len(chunks)},
+        extra={
+            "source_path": str(source_path),
+            "parent_count": len(parents),
+            "child_count": len(chunks),
+        },
     )
     logger.info("DOCUMENT INGESTION COMPLETE")
+    _report_progress(
+        progress_callback,
+        100,
+        "preprocessing_complete",
+        parents=len(parents),
+        children=len(chunks),
+        figures=len(figures),
+        tables=len(tables),
+    )
     return {
         "document": {
             "document_id": document_id,

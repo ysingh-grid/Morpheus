@@ -30,6 +30,7 @@
   7,967-byte payload was stored in PostgreSQL while workflow-facing state kept
   only its tool-result reference.
 - Refreshed Graphify after implementation (`665` nodes and `6,571` edges).
+- Added grounded page citations to document answers; invalid or invented page references are rejected before a response is returned.
 
 ## Missing
 
@@ -39,7 +40,7 @@
   evaluation set before changing its score boundaries.
 - Add API/UI support to display the clarification state and send the durable
   approval or cancellation signal.
-- Add citation formatting and answer-quality evaluation for `final_answer`.
+- Add broader human evaluation of citation completeness and claim-to-page precision.
 - Add production observability for graph decisions, node durations, and tool
   failure reasons.
 

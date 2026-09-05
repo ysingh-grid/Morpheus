@@ -18,6 +18,7 @@
 - Added a live Docling and Gemini integration test; it passes when `GEMINI_API_KEY` is loaded from `.env`.
 - Added project dependencies with uv and generated the Graphify code graph.
 - Regenerated the IFC annual-report bundle successfully: 35 captioned/bounded figures, 156 tables, 648 table chunks, and no validation errors.
+- Preserved page provenance through page-aware Markdown export; parents, children, and table chunks now carry explicit `page_numbers` arrays.
 
 ## Missing
 
@@ -34,3 +35,4 @@
 - Page-level OCR-empty-page detection is not exposed by the configured OcrMac pipeline. The manifest reports this limitation as a warning rather than fabricating page results.
 - Docling table matching can recover cells by nearest row/column or drop unmatched cells. A table can therefore pass structural validation while still needing source-level cell accuracy review.
 - Gemini was asked for a 50-word summary but returned 63 words; summary length is not currently enforced.
+- Bundles created before page provenance was added must be reprocessed before answers can cite their pages.
