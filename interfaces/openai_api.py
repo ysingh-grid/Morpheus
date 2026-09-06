@@ -103,26 +103,64 @@ def _message_content(message: dict[str, Any]) -> str:
     return content
 
 
+_ALLOWED_MESSAGE_ROLES = frozenset({"user", "assistant", "system"})
+
+
+def _message_role(message: dict[str, Any]) -> str:
+    """Validate and return one supported OpenAI chat message role."""
+    role = message.get("role")
+    if not isinstance(role, str) or role not in _ALLOWED_MESSAGE_ROLES:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": {
+                    "message": "Each message role must be one of: user, assistant, system."
+                }
+            },
+        )
+    return role
+
+
 def _sanitize_messages(
     messages: list[dict[str, Any]],
 ) -> tuple[str, list[dict[str, Any]]]:
-    """Run the security boundary on every user turn before Temporal receives it."""
+    """Screen every user turn and locally redact non-user conversation history."""
     if not messages:
         raise HTTPException(
             status_code=422,
             detail={"error": {"message": "At least one chat message is required."}},
         )
 
-    sanitized_messages: list[dict[str, Any]] = []
-    latest_sanitized_query = ""
-    for index, message in enumerate(messages):
+    validated_messages: list[tuple[dict[str, Any], str, str]] = []
+    for message in messages:
         if not isinstance(message, dict):
             raise HTTPException(
                 status_code=422,
                 detail={"error": {"message": "Each message must be an object."}},
             )
+        role = _message_role(message)
+        content = _message_content(message)
+        validated_messages.append((message, role, content))
+
+    if validated_messages[-1][1] != "user":
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": {
+                    "message": "The final message in the chat conversation must be a user turn."
+                }
+            },
+        )
+
+    sanitized_messages: list[dict[str, Any]] = []
+    latest_sanitized_query = ""
+    for message, role, content in validated_messages:
         sanitized_message = dict(message)
-        content = _message_content(sanitized_message)
+        if role != "user":
+            sanitized_message["content"] = guardrails.anonymize_pii(content)
+            sanitized_messages.append(sanitized_message)
+            continue
+
         scan_result = guardrails.scan_user_input(content)
         if not scan_result.is_safe:
             raise HTTPException(
@@ -135,8 +173,7 @@ def _sanitize_messages(
                 },
             )
         sanitized_message["content"] = scan_result.sanitized_prompt
-        if index == len(messages) - 1:
-            latest_sanitized_query = scan_result.sanitized_prompt
+        latest_sanitized_query = scan_result.sanitized_prompt
         sanitized_messages.append(sanitized_message)
     return latest_sanitized_query, sanitized_messages
 
