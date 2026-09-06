@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 AgentTool = Literal["hybrid_search", "mcp_search"]
 AgentIntent = Literal["conversation", "document", "web", "document_and_web", "clarify"]
-DocumentLookupMode = Literal["semantic", "overview"]
+DocumentLookupMode = Literal["semantic", "overview", "table", "figure", "page"]
 
 
 class AgentPlan(BaseModel):

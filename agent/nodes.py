@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 from openai import APIError
@@ -73,23 +74,101 @@ def _document_overview_request(query: str) -> bool:
     )
 
 
+def _conversation_transform_request(state: AgentState) -> bool:
+    """Recognize follow-ups answerable entirely from a prior assistant response."""
+    query = " ".join(state.get("query", "").casefold().split())
+    has_prior_answer = any(
+        message.get("role") == "assistant" and str(message.get("content", "")).strip()
+        for message in state.get("messages", [])[:-1]
+    )
+    if not has_prior_answer:
+        return False
+    return bool(
+        re.search(
+            r"^(?:tabulate\b|put (?:that|those|it) in (?:a )?table\b|"
+            r"present (?:that|those|it) (?:in|as) (?:a )?(?:markdown )?table\b|"
+            r"reformat\b|on which page\b|what page\b|where did you find (?:that|those|it)\b|"
+            r"what (?:was|is) the (?:change|difference|variance|percentage change)\b)",
+            query,
+        )
+    )
+
+
+def _document_lookup_mode(query: str) -> str:
+    """Infer a retrieval policy from explicit structural cues in the user query."""
+    normalized = " ".join(query.casefold().split())
+    if _document_overview_request(query):
+        return "overview"
+    if re.search(r"\bpage\s+\d+\b", normalized):
+        return "page"
+    if re.search(r"\b(?:figure|fig\.?|chart|diagram|graph)\s*\d*\b", normalized):
+        return "figure"
+    if any(
+        phrase in normalized
+        for phrase in (
+            "table",
+            "tabulate",
+            "balance sheet",
+            "statement of operations",
+            "financial statement",
+            "break down",
+            "breakdown",
+            "across 2024",
+        )
+    ):
+        return "table"
+    return "semantic"
+
+
+def _conversation_retrieval_context(state: AgentState, current_query: str) -> str:
+    """Extract bounded prior-turn context for an otherwise underspecified search query."""
+    messages = [*state.get("history", []), *state.get("messages", [])]
+    context_parts: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    for message in reversed(messages):
+        role = str(message.get("role", "context"))
+        content = " ".join(str(message.get("content", "")).split())
+        if not content or content == current_query:
+            continue
+        if role == "system" and not content.startswith("Latest "):
+            continue
+        key = (role, content)
+        if key in seen:
+            continue
+        seen.add(key)
+        context_parts.append(f"{role}: {content}")
+        if len(context_parts) == 2:
+            break
+    return "\n".join(reversed(context_parts))[:700]
+
+
 def _scope_document_query(plan: AgentPlan, state: AgentState) -> AgentPlan:
-    """Ground overview retrieval in the sole attached document's compact profile."""
+    """Expand underspecified document follow-ups before their hybrid retrieval pass."""
     documents = state.get("attached_documents", [])
-    is_overview = plan.document_lookup == "overview" or _document_overview_request(
-        state.get("query", "")
-    )
-    if "hybrid_search" not in plan.tool_sequence or not is_overview or len(documents) != 1:
+    query = state.get("query", "").strip()
+    if "hybrid_search" not in plan.tool_sequence:
         return plan
-    document = documents[0]
-    base_query = plan.document_query.strip() or state.get("query", "").strip()
-    profile = " ".join(
-        part.strip()
-        for part in (document.get("name", ""), document.get("summary", ""))
-        if part.strip()
-    )
-    plan.document_lookup = "overview"
-    plan.document_query = f"{base_query}\nAttached document: {profile}"[:1000]
+    base_query = plan.document_query.strip() or query
+    query_parts = [base_query]
+    if len(query.split()) <= 32:
+        context = _conversation_retrieval_context(state, query)
+        if context:
+            query_parts.append(f"Conversation context:\n{context}")
+    inferred_lookup = _document_lookup_mode(query)
+    if inferred_lookup != "semantic":
+        plan.document_lookup = inferred_lookup
+    is_overview = plan.document_lookup == "overview"
+    if is_overview and len(documents) == 1:
+        document = documents[0]
+        profile = " ".join(
+            part.strip()
+            for part in (document.get("name", ""), document.get("summary", ""))
+            if part.strip()
+        )
+        if profile:
+            query_parts.append(f"Attached document: {profile}")
+        plan.document_lookup = "overview"
+    plan.document_query = "\n\n".join(query_parts)[:1000]
     return plan
 
 
@@ -141,6 +220,12 @@ def _fallback_plan(state: AgentState) -> AgentPlan:
 
 def _create_agent_plan(state: AgentState) -> AgentPlan:
     """Ask Gemini to choose zero, one, or multiple tools for the current turn."""
+    if _conversation_transform_request(state):
+        return AgentPlan(
+            intent="conversation",
+            tool_sequence=[],
+            reason="The request transforms or calculates from the preceding answer.",
+        )
     document_ids = state.get("document_ids", [])
     recent_messages = state.get("messages", [])[-12:]
     completion = llm_client.beta.chat.completions.parse(
@@ -160,13 +245,17 @@ def _create_agent_plan(state: AgentState) -> AgentPlan:
                     "content with web information. Set document_only=true only when the user "
                     "explicitly constrains the answer to an uploaded or attached document. "
                     "Set document_lookup=overview for title, summary, subject, or 'what is this "
-                    "document about' questions; otherwise use semantic. "
+                    "document about' questions; table for tabular or financial-statement facts; "
+                    "figure for figures, charts, graphs, or diagrams; page for an explicit page "
+                    "number; otherwise use semantic. "
                     "Choose clarify only when the request is genuinely ambiguous and cannot be "
                     "answered safely. Never select hybrid_search when no document IDs are "
                     "available. Tool names must appear at most once and in execution order. "
                     "For every selected tool, write a concise standalone search query that "
                     "removes conversational routing phrases such as 'according to the uploaded "
-                    "document' while preserving names, dates, numbers, and the information need."
+                    "document' while preserving names, dates, numbers, and the information need. "
+                    "For short document questions and follow-ups such as 'more detail' or 'the "
+                    "topic above', resolve the subject from recent_conversation in document_query."
                 ),
             },
             {

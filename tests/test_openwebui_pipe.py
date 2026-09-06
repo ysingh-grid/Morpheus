@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
@@ -236,4 +237,47 @@ def test_pipe_removes_automatic_numeric_source_markers() -> None:
 
     assert Pipe._remove_automatic_source_markers(answer) == (
         "The deadline is August 10 [Source: circular.pdf, p. 1]."
+    )
+
+
+def test_pipe_handles_openwebui_utility_task_without_calling_gateway() -> None:
+    """Open WebUI title generation stays outside the agent and its session memory."""
+    pipe = Pipe()
+    pipe._request_json = AsyncMock()
+
+    result = asyncio.run(
+        pipe.pipe(
+            _body("### Task:\nGenerate a concise title summarizing the chat history."),
+            __task__="title_generation",
+            __task_body__={
+                "messages": [{"role": "user", "content": "Explain IFC governance"}]
+            },
+        )
+    )
+
+    assert json.loads(result) == {"title": "Explain IFC governance"}
+    pipe._request_json.assert_not_awaited()
+
+
+def test_pipe_unwraps_openwebui_document_context_before_agent_execution() -> None:
+    """Open WebUI's own extracted context never becomes the agent retrieval query."""
+    pipe = Pipe()
+    pipe.valves.POLL_INTERVAL_SECONDS = 0.1
+    pipe._request_json = AsyncMock(
+        side_effect=[
+            {"workflow_id": "wf-context"},
+            {"status": "completed", "final_answer": "IFC answer."},
+        ]
+    )
+    wrapped = (
+        "### Task:\nRespond to the user query using the provided context.\n"
+        "<context><source id=\"1\">large extracted document</source></context>\n\n"
+        "What is this document about?"
+    )
+
+    result = asyncio.run(pipe.pipe(_body(wrapped)))
+
+    assert result == "IFC answer."
+    assert pipe._request_json.await_args_list[0].args[2]["messages"][-1]["content"] == (
+        "What is this document about?"
     )

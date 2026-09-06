@@ -21,6 +21,7 @@ from ingestion.doc_processor import process_document
 from retrieval.pg_engine import (
     _database_url,
     _psycopg,
+    document_overview_and_join,
     ingest_bundle,
     hybrid_search_and_join,
 )
@@ -34,6 +35,12 @@ SOURCE_CITATION_PATTERN = re.compile(
 )
 OPENWEBUI_UPLOAD_PREFIX = re.compile(
     r"^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}_", re.IGNORECASE
+)
+OPENWEBUI_UTILITY_TASK_MARKERS = (
+    "generate a concise title summarizing the chat history",
+    "suggest 3-5 relevant follow-up questions or prompts",
+    "generate 1-3 broad tags categorizing the main themes",
+    "analyze the chat history to determine the necessity of generating search queries",
 )
 
 
@@ -69,6 +76,18 @@ class SessionContext(BaseModel):
 def _non_retryable(message: str) -> ApplicationError:
     """Return a Temporal error for inputs that a retry cannot repair."""
     return ApplicationError(message, type="InvalidInput", non_retryable=True)
+
+
+def _is_openwebui_utility_prompt(prompt: str) -> bool:
+    """Identify Open WebUI metadata-generation prompts that are not user turns."""
+    normalized = prompt.strip().lower()
+    return (
+        normalized.startswith("### task:")
+        and "### guidelines:" in normalized
+        and "### output:" in normalized
+        and "### chat history:" in normalized
+        and any(marker in normalized for marker in OPENWEBUI_UTILITY_TASK_MARKERS)
+    )
 
 
 @activity.defn
@@ -211,6 +230,12 @@ def persist_session_turn_activity(
         ),
         "",
     )
+    if _is_openwebui_utility_prompt(latest_user_message):
+        logger.info(
+            "Skipped Open WebUI utility prompt session persistence",
+            extra={"user_id": user_id, "session_id": session_id},
+        )
+        return
     summary = (
         f"Latest user query: {latest_user_message}\nLatest assistant answer: {answer}"[
             :8000
@@ -276,6 +301,7 @@ def run_agent_retrieval_activity(
     query: str,
     top_k: int = 5,
     document_ids: list[str] | None = None,
+    document_lookup: str = "semantic",
 ) -> dict[str, Any]:
     """Retrieve from this chat's documents and return compact evidence references."""
     if not query.strip():
@@ -287,12 +313,16 @@ def run_agent_retrieval_activity(
             "confidence": {},
             "evidence": [],
         }
-    response = hybrid_search_and_join(
-        query,
-        top_k,
-        include_ambiguous_evidence=True,
-        document_ids=document_ids,
-    )
+    if document_lookup == "overview":
+        response = document_overview_and_join(document_ids, min(top_k, 2))
+    else:
+        response = hybrid_search_and_join(
+            query,
+            top_k,
+            include_ambiguous_evidence=True,
+            document_ids=document_ids,
+            confidence_policy=document_lookup,
+        )
     return {
         "status": response["status"],
         "message": response["message"],
@@ -427,7 +457,8 @@ def _load_evidence_by_references(
                     parent.page_numbers,
                     parent.figure_ids,
                     parent.table_ids,
-                    document.source_path
+                    document.source_path,
+                    document.summary AS document_summary
                 FROM parents AS parent
                 JOIN documents AS document ON document.id = parent.doc_id
                 WHERE parent.id = ANY(%s)
@@ -502,6 +533,7 @@ def _load_evidence_by_references(
             {
                 **reference,
                 "document_name": _display_document_name(str(parent["source_path"])),
+                "document_summary": parent["document_summary"],
                 "child_text": _page_grounded_child_text(child["text_with_context"]),
                 "page_numbers": list(child["page_numbers"] or []),
                 "parent_text": parent["parent_text"],
@@ -730,8 +762,11 @@ def generate_direct_answer_activity(
                 "role": "system",
                 "content": (
                     "You are Morpheus, a helpful conversational assistant. Respond naturally "
-                    "using the conversation history. No successful evidence-bearing tool result is "
-                    "available for this turn, so never claim that you inspected an uploaded "
+                    "using the conversation history. You may reformat, quote, summarize, or "
+                    "calculate from facts and citations already present in a prior assistant "
+                    "answer, but must preserve its source citations and add no new document facts. "
+                    "No new evidence-bearing tool result is available for this turn, so never "
+                    "claim that you newly inspected an uploaded "
                     "document or searched the web. If a requested tool failed, state that "
                     "limitation instead of fabricating its result. If the user asks for missing "
                     "details, ask one focused clarification."

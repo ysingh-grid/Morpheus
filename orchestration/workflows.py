@@ -134,10 +134,13 @@ class AgentWorkflow:
             if action == "hybrid_search":
                 self.execution_history.append("pgvector_retrieval_started")
                 document_query = str(state.get("agent_plan", {}).get("document_query") or query)
+                document_lookup = str(
+                    state.get("agent_plan", {}).get("document_lookup") or "semantic"
+                )
                 try:
                     retrieval = await self._activity(
                         run_agent_retrieval_activity,
-                        [document_query, 5, state["document_ids"]],
+                        [document_query, 5, state["document_ids"], document_lookup],
                         30,
                         2,
                     )

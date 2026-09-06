@@ -2,8 +2,16 @@
 
 from __future__ import annotations
 
+import pytest
+
 from agent.graph import compile_agent_graph
-from agent.nodes import _fallback_plan, _scope_document_query, planner_node, verify_groundedness_node
+from agent.nodes import (
+    _create_agent_plan,
+    _fallback_plan,
+    _scope_document_query,
+    planner_node,
+    verify_groundedness_node,
+)
 from agent.state import AgentPlan
 
 
@@ -40,6 +48,35 @@ def test_planner_node_conversation_plan_selects_direct_answer() -> None:
         }
     )
     assert result == {"next_action": "direct_answer"}
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "Tabulate those figures.",
+        "What was the change from 2023 to 2024?",
+        "On which page did you find those figures?",
+    ],
+)
+def test_follow_up_transform_uses_prior_answer_without_retrieval(query: str) -> None:
+    """Formatting, arithmetic, and citation follow-ups reuse grounded chat output."""
+    plan = _create_agent_plan(
+        {
+            "query": query,
+            "document_ids": ["document-1"],
+            "messages": [
+                {"role": "user", "content": "What were the figures?"},
+                {
+                    "role": "assistant",
+                    "content": "2024: 10; 2023: 8 [Source: report.pdf, p. 4].",
+                },
+                {"role": "user", "content": query},
+            ],
+        }
+    )
+
+    assert plan.intent == "conversation"
+    assert plan.tool_sequence == []
 
 
 def test_fallback_plan_requests_attachment_for_missing_document_context() -> None:
@@ -83,6 +120,95 @@ def test_document_overview_query_uses_attached_document_profile() -> None:
     assert scoped.document_lookup == "overview"
     assert "Circular For 2026 Batch" in scoped.document_query
     assert "Academic Award Ceremony" in scoped.document_query
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "more in depth about the topic above",
+        "can you go deeper on that?",
+        "what about the limitations?",
+    ],
+)
+def test_short_document_follow_up_includes_previous_subject_for_retrieval(query: str) -> None:
+    """Short follow-ups must search the prior topic rather than literal vague wording."""
+    plan = AgentPlan(
+        intent="document",
+        tool_sequence=["hybrid_search"],
+        document_only=True,
+        document_query=query,
+        reason="The user asks a follow-up about the attached report.",
+    )
+
+    scoped = _scope_document_query(
+        plan,
+        {
+            "query": query,
+            "history": [
+                {
+                    "role": "system",
+                    "content": (
+                        "Latest user query: What is the TL;DR of this report? "
+                        "Latest assistant answer: The report covers TinyLlama instruction "
+                        "tuning on Apple Silicon using MLX-LM."
+                    ),
+                }
+            ],
+            "messages": [
+                {"role": "user", "content": query}
+            ],
+        },
+    )
+
+    assert scoped.document_query.startswith(query)
+    assert "Conversation context:" in scoped.document_query
+    assert "TinyLlama instruction tuning on Apple Silicon" in scoped.document_query
+
+
+def test_document_query_without_prior_turn_does_not_invent_context() -> None:
+    """A first-turn document question must not fabricate a prior conversational subject."""
+    query = "what about the limitations?"
+    plan = AgentPlan(
+        intent="document",
+        tool_sequence=["hybrid_search"],
+        document_only=True,
+        document_query=query,
+        reason="The user asks about the attached report.",
+    )
+
+    scoped = _scope_document_query(plan, {"query": query, "messages": []})
+
+    assert scoped.document_query == query
+
+
+def test_document_query_excludes_unrelated_user_fact_from_retrieval_context() -> None:
+    """Personal-memory system messages must not bias a document similarity search."""
+    query = "tell me more"
+    plan = AgentPlan(
+        intent="document",
+        tool_sequence=["hybrid_search"],
+        document_only=True,
+        document_query=query,
+        reason="The user asks a follow-up about the attached report.",
+    )
+
+    scoped = _scope_document_query(
+        plan,
+        {
+            "query": query,
+            "history": [
+                {"role": "system", "content": "Known user fact: favorite color = blue"},
+                {
+                    "role": "system",
+                    "content": "Latest assistant answer: TinyLlama uses MLX-LM on Apple Silicon.",
+                },
+            ],
+            "messages": [{"role": "user", "content": query}],
+        },
+    )
+
+    assert "TinyLlama uses MLX-LM" in scoped.document_query
+    assert "favorite color" not in scoped.document_query
 
 
 def test_verify_groundedness_node_requests_clarification_for_weak_retrieval() -> None:

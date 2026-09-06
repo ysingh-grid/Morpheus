@@ -279,7 +279,12 @@ async def _decision_graph(state: dict[str, Any]) -> dict[str, Any]:
 
 
 @activity.defn(name="run_agent_retrieval_activity")
-def _retrieval(query: str, _top_k: int, _document_ids: list[str]) -> dict[str, Any]:
+def _retrieval(
+    query: str,
+    _top_k: int,
+    _document_ids: list[str],
+    _document_lookup: str,
+) -> dict[str, Any]:
     """Return compact references only, never full parent/table payloads."""
     CALLS["retrieval"] += 1
     if query == "not found":

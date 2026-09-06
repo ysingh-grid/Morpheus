@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any, TypedDict
@@ -14,7 +16,7 @@ from openpyxl.styles import Font
 
 from retrieval.pg_engine import _database_url
 
-DEFAULT_DOCUMENT_ID = "ifc-annual-report-2024-financials"
+DEFAULT_DOCUMENT_PATH = Path("dummy_data/ifc-annual-report-2024-financials.pdf")
 DEFAULT_JSON_OUTPUT = Path("retrieval/evaluation_cases_ifc_2024_human_review.json")
 DEFAULT_WORKBOOK_OUTPUT = Path("dummy_data/ifc-annual-report-2024-financials.evaluation-review.xlsx")
 REVIEW_HEADERS = (
@@ -111,8 +113,21 @@ def _fetch_rows(document_id: str) -> tuple[list[dict[str, Any]], list[dict[str, 
     return parents, tables, figures
 
 
-def build_review_cases(document_id: str = DEFAULT_DOCUMENT_ID) -> list[ReviewCase]:
+def _default_document_id() -> str:
+    """Resolve the evaluation corpus through the same content-addressed ID contract."""
+    configured_id = os.getenv("EVALUATION_DOCUMENT_ID")
+    if configured_id:
+        return configured_id
+    digest = hashlib.sha256()
+    with DEFAULT_DOCUMENT_PATH.open("rb") as source_file:
+        for block in iter(lambda: source_file.read(1_048_576), b""):
+            digest.update(block)
+    return f"sha256-{digest.hexdigest()}"
+
+
+def build_review_cases(document_id: str | None = None) -> list[ReviewCase]:
     """Generate exactly 100 source-linked cases, each pending human verification."""
+    document_id = document_id or _default_document_id()
     parents, tables, figures = _fetch_rows(document_id)
     if len(parents) < 30 or len(tables) < 30 or len(figures) < 20:
         raise RuntimeError("The document lacks enough parent, table, or figure records for the 100-case set.")
@@ -281,7 +296,11 @@ def import_human_review(workbook_path: Path, json_output: Path) -> int:
 def main() -> None:
     """Build a 100-case review set for one loaded document."""
     parser = argparse.ArgumentParser(description="Build an annotation-ready 100-case retrieval benchmark.")
-    parser.add_argument("--document-id", default=DEFAULT_DOCUMENT_ID, help="PostgreSQL document ID to sample.")
+    parser.add_argument(
+        "--document-id",
+        default=None,
+        help="PostgreSQL document ID to sample; defaults to the IFC file's content ID.",
+    )
     parser.add_argument("--json-output", type=Path, default=DEFAULT_JSON_OUTPUT, help="JSON matrix output.")
     parser.add_argument("--workbook-output", type=Path, default=DEFAULT_WORKBOOK_OUTPUT, help="Excel review workbook output.")
     parser.add_argument(

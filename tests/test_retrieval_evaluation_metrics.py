@@ -34,7 +34,7 @@ def test_confidence_declines_unsupported_vector_only_evidence() -> None:
         [
             {
                 "rrf_score": 0.01639,
-                "vector_distance": 0.41136,
+                "vector_distance": 0.47136,
                 "lexical_match": False,
                 "rrf_score_margin": 0.000264,
             }
@@ -43,6 +43,22 @@ def test_confidence_declines_unsupported_vector_only_evidence() -> None:
 
     assert confidence["status"] == "not_found"
     assert any("Vector distance" in reason for reason in confidence["reasons"])
+
+
+def test_confidence_accepts_loosened_vector_and_margin_thresholds() -> None:
+    """Accept vector-only evidence inside the experimental relaxed thresholds."""
+    confidence = _assess_confidence(
+        [
+            {
+                "rrf_score": 0.012,
+                "vector_distance": 0.46,
+                "lexical_match": False,
+                "rrf_score_margin": 0.0,
+            }
+        ]
+    )
+
+    assert confidence["status"] == "grounded"
 
 
 def test_confidence_accepts_close_vector_only_evidence() -> None:
@@ -56,6 +72,45 @@ def test_confidence_accepts_close_vector_only_evidence() -> None:
                 "rrf_score_margin": 0.000264,
             }
         ]
+    )
+
+    assert confidence["status"] == "grounded"
+
+
+def test_figure_policy_rejects_missing_explicit_figure_number() -> None:
+    """A nearby unrelated figure cannot satisfy an explicit figure-number request."""
+    confidence = _assess_confidence(
+        [
+            {
+                "rrf_score": 0.01639,
+                "vector_distance": 0.2,
+                "lexical_match": False,
+                "rrf_score_margin": 0.000264,
+                "figures": [{"caption": "Figure 29 governance structure"}],
+                "child_text": "Figure 29",
+                "parent_text": "Governance",
+            }
+        ],
+        policy="figure",
+        requested_figure=999,
+    )
+
+    assert confidence["status"] == "not_found"
+
+
+def test_table_policy_accepts_structural_table_match_without_score_margin() -> None:
+    """A strongly matched table row is not rejected because adjacent rows rank closely."""
+    confidence = _assess_confidence(
+        [
+            {
+                "rrf_score": 0.0161,
+                "vector_distance": 0.35,
+                "lexical_match": False,
+                "rrf_score_margin": 0.0,
+                "matched_table_chunks": [{"id": "table-row"}],
+            }
+        ],
+        policy="table",
     )
 
     assert confidence["status"] == "grounded"

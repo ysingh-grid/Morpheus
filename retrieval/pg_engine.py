@@ -7,8 +7,10 @@ winning children to their parent blocks, figures, and tables atomically.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, Callable, Literal, TypedDict
 
@@ -21,9 +23,9 @@ EMBEDDING_DIMENSION = 1536
 EMBEDDING_BATCH_SIZE = 100
 RRF_K = 60
 RRF_CANDIDATE_MULTIPLIER = 10
-MIN_RRF_SCORE = float(os.getenv("RETRIEVAL_MIN_RRF_SCORE", "0.016"))
-MAX_VECTOR_DISTANCE = float(os.getenv("RETRIEVAL_MAX_VECTOR_DISTANCE", "0.400"))
-MIN_RRF_SCORE_MARGIN = float(os.getenv("RETRIEVAL_MIN_RRF_SCORE_MARGIN", "0.0002"))
+MIN_RRF_SCORE = float(os.getenv("RETRIEVAL_MIN_RRF_SCORE", "0.012"))
+MAX_VECTOR_DISTANCE = float(os.getenv("RETRIEVAL_MAX_VECTOR_DISTANCE", "0.460"))
+MIN_RRF_SCORE_MARGIN = float(os.getenv("RETRIEVAL_MIN_RRF_SCORE_MARGIN", "0.0"))
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 ProgressCallback = Callable[[int, str, dict[str, Any]], None]
 
@@ -56,6 +58,7 @@ class RetrievalConfidence(TypedDict):
     vector_distance: float | None
     lexical_match: bool
     rrf_score_margin: float
+    policy: str
     reasons: list[str]
 
 
@@ -103,11 +106,11 @@ vector_ranked AS (
 child_fts_scores AS (
     SELECT
         child.parent_id,
-        MAX(ts_rank_cd(child.fts_content, input.query_terms)) AS lexical_score
+        MAX(ts_rank_cd(child.retrieval_fts_content, input.query_terms)) AS lexical_score
     FROM children AS child
     CROSS JOIN search_input AS input
     WHERE (cardinality(input.document_ids) = 0 OR child.doc_id = ANY(input.document_ids))
-      AND child.fts_content @@ input.query_terms
+      AND child.retrieval_fts_content @@ input.query_terms
     GROUP BY child.parent_id
 ),
 child_fts_ranked AS (
@@ -353,6 +356,14 @@ def _matched_table_text_for_reranking(table_chunks: list[dict[str, Any]]) -> str
     return "\n\n".join(table_chunk["text_with_context"] for table_chunk in table_chunks)
 
 
+def _child_retrieval_text(text_with_context: str) -> str:
+    """Remove the repeated global summary from text used for indexing and ranking."""
+    if not text_with_context.startswith("Document summary:"):
+        return text_with_context
+    _, separator, child_text = text_with_context.partition("\n\n")
+    return child_text if separator else text_with_context
+
+
 def initialize_schema() -> None:
     """Create the pgvector extension, relational tables, and retrieval indexes."""
     psycopg = _psycopg()
@@ -393,6 +404,257 @@ def document_ingestion_stats(document_id: str) -> dict[str, int] | None:
     return {key: int(value) for key, value in row.items()}
 
 
+def _file_sha256(file_path: Path) -> str:
+    """Hash a local document without loading the complete file into memory."""
+    digest = hashlib.sha256()
+    with file_path.open("rb") as source_file:
+        for block in iter(lambda: source_file.read(1_048_576), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def consolidate_document_identity(
+    file_path: str | Path,
+    preferred_document_id: str | None = None,
+) -> dict[str, Any]:
+    """Merge legacy filename-derived copies into one content-addressed document.
+
+    The most recently attached candidate is retained unless an explicit preferred
+    identifier is supplied. Normalized rows and embeddings are copied locally;
+    this operation never calls an embedding or language-model API.
+    """
+    source_file = Path(file_path).resolve()
+    if not source_file.is_file():
+        raise ValueError(f"Document does not exist or is not a file: {file_path}")
+    content_sha256 = _file_sha256(source_file)
+    canonical_id = f"sha256-{content_sha256}"
+    legacy_suffix = f"-{content_sha256[:16]}"
+    psycopg = _psycopg()
+
+    with psycopg.connect(_database_url()) as connection:
+        with connection.cursor(row_factory=psycopg.rows.dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT id, source_path
+                FROM documents
+                WHERE id = %s
+                   OR content_sha256 = %s
+                   OR id LIKE %s
+                """,
+                (canonical_id, content_sha256, f"%{legacy_suffix}"),
+            )
+            candidates = list(cursor.fetchall())
+            candidate_ids = {str(candidate["id"]) for candidate in candidates}
+
+            cursor.execute("SELECT id, source_path FROM documents")
+            for candidate in cursor.fetchall():
+                candidate_id = str(candidate["id"])
+                if candidate_id in candidate_ids:
+                    continue
+                candidate_path = Path(str(candidate["source_path"]))
+                if not candidate_path.is_absolute():
+                    candidate_path = Path.cwd() / candidate_path
+                try:
+                    matches_content = (
+                        candidate_path.is_file()
+                        and _file_sha256(candidate_path) == content_sha256
+                    )
+                except OSError:
+                    matches_content = False
+                if matches_content:
+                    candidates.append(candidate)
+                    candidate_ids.add(candidate_id)
+
+            if not candidates:
+                return {
+                    "canonical_document_id": canonical_id,
+                    "merged_document_ids": [],
+                    "status": "not_ingested",
+                }
+
+            if preferred_document_id is not None and preferred_document_id not in candidate_ids:
+                raise ValueError("Preferred document is not a matching ingested copy")
+
+            cursor.execute(
+                """
+                SELECT
+                    document.id,
+                    MAX(session.updated_at) AS last_attached,
+                    (SELECT COUNT(*) FROM children WHERE doc_id = document.id) AS child_count,
+                    (SELECT COUNT(*) FROM figures WHERE doc_id = document.id) AS figure_count,
+                    (SELECT COUNT(*) FROM tables WHERE doc_id = document.id) AS table_count
+                FROM documents AS document
+                LEFT JOIN user_sessions AS session
+                  ON document.id = ANY(session.document_ids)
+                WHERE document.id = ANY(%s)
+                GROUP BY document.id
+                ORDER BY
+                    (document.id = %s) DESC,
+                    MAX(session.updated_at) DESC NULLS LAST,
+                    child_count DESC,
+                    figure_count DESC,
+                    table_count DESC,
+                    document.id
+                """,
+                (list(candidate_ids), preferred_document_id or ""),
+            )
+            retained_id = str(cursor.fetchone()["id"])
+
+            if retained_id != canonical_id:
+                cursor.execute("DELETE FROM documents WHERE id = %s", (canonical_id,))
+                cursor.execute(
+                    """
+                    INSERT INTO documents (id, content_sha256, source_path, summary)
+                    SELECT %s, %s, source_path, summary
+                    FROM documents
+                    WHERE id = %s
+                    """,
+                    (canonical_id, content_sha256, retained_id),
+                )
+
+                cursor.execute(
+                    """
+                    SELECT id, parent_text, page_numbers, figure_ids, table_ids
+                    FROM parents WHERE doc_id = %s ORDER BY id
+                    """,
+                    (retained_id,),
+                )
+                source_parents = list(cursor.fetchall())
+                parent_id_map = {
+                    str(parent["id"]): f"{canonical_id}-parent-{index}"
+                    for index, parent in enumerate(source_parents)
+                }
+                cursor.executemany(
+                    """
+                    INSERT INTO parents (
+                        id, doc_id, parent_text, page_numbers, figure_ids, table_ids
+                    ) VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    [
+                        (
+                            parent_id_map[str(parent["id"])],
+                            canonical_id,
+                            parent["parent_text"],
+                            parent["page_numbers"],
+                            parent["figure_ids"],
+                            parent["table_ids"],
+                        )
+                        for parent in source_parents
+                    ],
+                )
+                cursor.execute(
+                    """
+                    INSERT INTO figures (id, doc_id, caption, bounding_boxes)
+                    SELECT id, %s, caption, bounding_boxes
+                    FROM figures WHERE doc_id = %s
+                    """,
+                    (canonical_id, retained_id),
+                )
+                cursor.execute(
+                    """
+                    INSERT INTO tables (
+                        id, doc_id, markdown, heading, caption, context,
+                        bounding_boxes, row_count, column_count, chunk_ids
+                    )
+                    SELECT
+                        id, %s, markdown, heading, caption, context,
+                        bounding_boxes, row_count, column_count, chunk_ids
+                    FROM tables WHERE doc_id = %s
+                    """,
+                    (canonical_id, retained_id),
+                )
+                cursor.execute(
+                    """
+                    INSERT INTO table_chunks (
+                        id, table_id, doc_id, row_start, row_end,
+                        text_with_context, page_numbers
+                    )
+                    SELECT
+                        id, table_id, %s, row_start, row_end,
+                        text_with_context, page_numbers
+                    FROM table_chunks WHERE doc_id = %s
+                    """,
+                    (canonical_id, retained_id),
+                )
+                cursor.execute(
+                    """
+                    SELECT id, parent_id, text_with_context, retrieval_text,
+                           page_numbers, embedding::text AS embedding
+                    FROM children WHERE doc_id = %s ORDER BY id
+                    """,
+                    (retained_id,),
+                )
+                source_children = list(cursor.fetchall())
+                cursor.executemany(
+                    """
+                    INSERT INTO children (
+                        id, parent_id, doc_id, text_with_context, retrieval_text,
+                        page_numbers, embedding
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s::vector)
+                    """,
+                    [
+                        (
+                            f"{canonical_id}-child-{index}",
+                            parent_id_map[str(child["parent_id"])],
+                            canonical_id,
+                            child["text_with_context"],
+                            child["retrieval_text"],
+                            child["page_numbers"],
+                            child["embedding"],
+                        )
+                        for index, child in enumerate(source_children)
+                    ],
+                )
+            else:
+                cursor.execute(
+                    "UPDATE documents SET content_sha256 = %s WHERE id = %s",
+                    (content_sha256, canonical_id),
+                )
+
+            cursor.execute(
+                """
+                SELECT user_id, session_id, document_ids
+                FROM user_sessions
+                WHERE document_ids && %s
+                """,
+                (list(candidate_ids),),
+            )
+            session_updates = []
+            for session in cursor.fetchall():
+                updated_ids: list[str] = []
+                for document_id in session["document_ids"]:
+                    replacement = canonical_id if document_id in candidate_ids else document_id
+                    if replacement not in updated_ids:
+                        updated_ids.append(replacement)
+                session_updates.append(
+                    (updated_ids, session["user_id"], session["session_id"])
+                )
+            cursor.executemany(
+                """
+                UPDATE user_sessions SET document_ids = %s, updated_at = NOW()
+                WHERE user_id = %s AND session_id = %s
+                """,
+                session_updates,
+            )
+            merged_ids = sorted(candidate_ids - {canonical_id})
+            if merged_ids:
+                cursor.execute("DELETE FROM documents WHERE id = ANY(%s)", (merged_ids,))
+
+    logger.info(
+        "Consolidated content-identical document records",
+        extra={
+            "canonical_document_id": canonical_id,
+            "merged_document_count": len(merged_ids),
+        },
+    )
+    return {
+        "canonical_document_id": canonical_id,
+        "merged_document_ids": merged_ids,
+        "retained_source_document_id": retained_id,
+        "status": "consolidated",
+    }
+
+
 def ingest_bundle(
     bundle_json: dict,
     progress_callback: ProgressCallback | None = None,
@@ -404,6 +666,9 @@ def ingest_bundle(
     """
     document = _required(bundle_json, "document")
     document_id = document["document_id"]
+    content_sha256 = document.get("content_sha256")
+    if not content_sha256 and document_id.startswith("sha256-"):
+        content_sha256 = document_id.removeprefix("sha256-")
     parents = _required(bundle_json, "parents")
     figures = _required(bundle_json, "figures")
     tables = _required(bundle_json, "tables")
@@ -411,10 +676,10 @@ def ingest_bundle(
     children = _required(bundle_json, "children")
     if progress_callback is not None:
         progress_callback(0, "starting_vector_storage", {"total": len(children)})
-    embeddings = _embed(
-        [child["text_with_context"] for child in children],
-        progress_callback,
-    )
+    retrieval_texts = [
+        _child_retrieval_text(child["text_with_context"]) for child in children
+    ]
+    embeddings = _embed(retrieval_texts, progress_callback)
 
     psycopg = _psycopg()
     if progress_callback is not None:
@@ -423,8 +688,16 @@ def ingest_bundle(
         with connection.cursor() as cursor:
             cursor.execute("DELETE FROM documents WHERE id = %s", (document_id,))
             cursor.execute(
-                "INSERT INTO documents (id, source_path, summary) VALUES (%s, %s, %s)",
-                (document_id, document["source_path"], document["summary"]),
+                """
+                INSERT INTO documents (id, content_sha256, source_path, summary)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (
+                    document_id,
+                    content_sha256,
+                    document["source_path"],
+                    document["summary"],
+                ),
             )
             cursor.executemany(
                 """
@@ -500,8 +773,9 @@ def ingest_bundle(
             cursor.executemany(
                 """
                 INSERT INTO children (
-                    id, parent_id, doc_id, text_with_context, page_numbers, embedding
-                ) VALUES (%s, %s, %s, %s, %s, %s::vector)
+                    id, parent_id, doc_id, text_with_context, retrieval_text,
+                    page_numbers, embedding
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s::vector)
                 """,
                 [
                     (
@@ -509,10 +783,13 @@ def ingest_bundle(
                         child["parent_id"],
                         document_id,
                         child["text_with_context"],
+                        retrieval_text,
                         child.get("metadata", {}).get("page_numbers", []),
                         _vector_literal(embedding),
                     )
-                    for child, embedding in zip(children, embeddings, strict=True)
+                    for child, retrieval_text, embedding in zip(
+                        children, retrieval_texts, embeddings, strict=True
+                    )
                 ],
             )
     if progress_callback is not None:
@@ -532,6 +809,47 @@ def ingest_bundle(
         "table_chunks": len(table_chunks),
         "children": len(children),
     }
+
+
+def reindex_child_embeddings(
+    document_ids: list[str], progress_callback: ProgressCallback | None = None
+) -> int:
+    """Rebuild existing child embeddings from page-local retrieval text."""
+    normalized_ids = list(dict.fromkeys(item for item in document_ids if item))
+    if not normalized_ids:
+        return 0
+    psycopg = _psycopg()
+    with psycopg.connect(_database_url()) as connection:
+        with connection.cursor(row_factory=psycopg.rows.dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT id, retrieval_text
+                FROM children
+                WHERE doc_id = ANY(%s)
+                ORDER BY doc_id, id
+                """,
+                (normalized_ids,),
+            )
+            records = list(cursor.fetchall())
+    if not records:
+        return 0
+    embeddings = _embed(
+        [str(record["retrieval_text"]) for record in records], progress_callback
+    )
+    with psycopg.connect(_database_url()) as connection:
+        with connection.cursor() as cursor:
+            cursor.executemany(
+                "UPDATE children SET embedding = %s::vector WHERE id = %s",
+                [
+                    (_vector_literal(embedding), record["id"])
+                    for record, embedding in zip(records, embeddings, strict=True)
+                ],
+            )
+    logger.info(
+        "Reindexed child embeddings from retrieval text",
+        extra={"document_count": len(normalized_ids), "children": len(records)},
+    )
+    return len(records)
 
 
 def attach_documents_to_session(
@@ -640,7 +958,67 @@ def _flashrank_rerank(
     return evidence
 
 
-def _assess_confidence(records: list[dict[str, Any]]) -> RetrievalConfidence:
+def _record_matches_policy(
+    record: dict[str, Any],
+    policy: str,
+    requested_page: int | None,
+    requested_figure: int | None,
+) -> bool:
+    """Return whether a candidate contains the structural evidence an intent requires."""
+    if policy == "table":
+        return bool(record.get("matched_table_chunks") or record.get("tables"))
+    if policy == "figure":
+        if not record.get("figures"):
+            return False
+        if requested_figure is None:
+            return True
+        searchable_text = "\n".join(
+            [
+                str(record.get("child_text", "")),
+                str(record.get("parent_text", "")),
+                *(str(figure.get("caption", "")) for figure in record.get("figures", [])),
+            ]
+        )
+        return bool(
+            re.search(
+                rf"\b(?:figure|fig\.?)\s*{requested_figure}\b",
+                searchable_text,
+                re.IGNORECASE,
+            )
+        )
+    if policy == "page" and requested_page is not None:
+        pages = {*record.get("page_numbers", []), *record.get("parent_page_numbers", [])}
+        return requested_page in pages
+    return True
+
+
+def _prioritize_policy_records(
+    query: str, records: list[dict[str, Any]], policy: str
+) -> tuple[list[dict[str, Any]], int | None, int | None]:
+    """Move the strongest structurally matching candidate ahead of generic matches."""
+    page_match = re.search(r"\bpage\s+(\d+)\b", query, re.IGNORECASE)
+    requested_page = int(page_match.group(1)) if page_match else None
+    figure_match = re.search(
+        r"\b(?:figure|fig\.?)\s*(\d+)\b", query, re.IGNORECASE
+    )
+    requested_figure = int(figure_match.group(1)) if figure_match else None
+    if policy not in {"table", "figure", "page"}:
+        return records, requested_page, requested_figure
+    matching = [
+        record
+        for record in records
+        if _record_matches_policy(record, policy, requested_page, requested_figure)
+    ]
+    nonmatching = [record for record in records if record not in matching]
+    return [*matching, *nonmatching], requested_page, requested_figure
+
+
+def _assess_confidence(
+    records: list[dict[str, Any]],
+    policy: str = "semantic",
+    requested_page: int | None = None,
+    requested_figure: int | None = None,
+) -> RetrievalConfidence:
     """Assess whether the strongest RRF candidate is grounded enough to answer."""
     if not records:
         return {
@@ -649,6 +1027,7 @@ def _assess_confidence(records: list[dict[str, Any]]) -> RetrievalConfidence:
             "vector_distance": None,
             "lexical_match": False,
             "rrf_score_margin": 0.0,
+            "policy": policy,
             "reasons": ["No RRF candidates were returned."],
         }
 
@@ -662,6 +1041,33 @@ def _assess_confidence(records: list[dict[str, Any]]) -> RetrievalConfidence:
     lexical_match = bool(top_record["lexical_match"])
     rrf_score_margin = float(top_record["rrf_score_margin"])
     reasons: list[str] = []
+
+    structural_match = _record_matches_policy(
+        top_record, policy, requested_page, requested_figure
+    )
+    if policy in {"table", "figure", "page"}:
+        if not structural_match:
+            return {
+                "status": "not_found",
+                "rrf_score": rrf_score,
+                "vector_distance": vector_distance,
+                "lexical_match": lexical_match,
+                "rrf_score_margin": rrf_score_margin,
+                "policy": policy,
+                "reasons": [f"No {policy}-specific evidence matched the request."],
+            }
+        if lexical_match or (
+            vector_distance is not None and vector_distance <= 0.50
+        ):
+            return {
+                "status": "grounded",
+                "rrf_score": rrf_score,
+                "vector_distance": vector_distance,
+                "lexical_match": lexical_match,
+                "rrf_score_margin": rrf_score_margin,
+                "policy": policy,
+                "reasons": [],
+            }
 
     if rrf_score < MIN_RRF_SCORE:
         reasons.append(f"RRF score {rrf_score:.5f} is below {MIN_RRF_SCORE:.5f}.")
@@ -684,6 +1090,7 @@ def _assess_confidence(records: list[dict[str, Any]]) -> RetrievalConfidence:
             "vector_distance": vector_distance,
             "lexical_match": lexical_match,
             "rrf_score_margin": rrf_score_margin,
+            "policy": policy,
             "reasons": reasons
             + ["No lexical evidence matched the uploaded documents."],
         }
@@ -694,6 +1101,7 @@ def _assess_confidence(records: list[dict[str, Any]]) -> RetrievalConfidence:
             "vector_distance": vector_distance,
             "lexical_match": lexical_match,
             "rrf_score_margin": rrf_score_margin,
+            "policy": policy,
             "reasons": reasons,
         }
     return {
@@ -702,6 +1110,7 @@ def _assess_confidence(records: list[dict[str, Any]]) -> RetrievalConfidence:
         "vector_distance": vector_distance,
         "lexical_match": lexical_match,
         "rrf_score_margin": rrf_score_margin,
+        "policy": policy,
         "reasons": [],
     }
 
@@ -711,6 +1120,7 @@ def hybrid_search_and_join(
     top_k: int = 5,
     include_ambiguous_evidence: bool = False,
     document_ids: list[str] | None = None,
+    confidence_policy: str = "semantic",
 ) -> RetrievalResponse:
     """Run hybrid retrieval, optionally retaining ambiguous candidates for verification."""
     if not query.strip():
@@ -737,7 +1147,12 @@ def hybrid_search_and_join(
                 ),
             )
             records = list(cursor.fetchall())
-    confidence = _assess_confidence(records)
+    records, requested_page, requested_figure = _prioritize_policy_records(
+        query, records, confidence_policy
+    )
+    confidence = _assess_confidence(
+        records, confidence_policy, requested_page, requested_figure
+    )
     if confidence["status"] == "not_found":
         logger.info(
             "Retrieval declined due to insufficient evidence",
@@ -767,4 +1182,123 @@ def hybrid_search_and_join(
         "message": "Grounded evidence retrieved.",
         "confidence": confidence,
         "evidence": _flashrank_rerank(query, records, top_k),
+    }
+
+
+def document_overview_and_join(
+    document_ids: list[str], top_k: int = 2
+) -> RetrievalResponse:
+    """Load stored summaries and opening parents without applying semantic rank gates."""
+    if not document_ids:
+        return {
+            "status": "not_found",
+            "message": "No documents are attached to this chat.",
+            "confidence": {
+                "status": "not_found",
+                "rrf_score": 0.0,
+                "vector_distance": None,
+                "lexical_match": False,
+                "rrf_score_margin": 0.0,
+                "reasons": ["No attached document IDs were supplied."],
+            },
+            "evidence": [],
+        }
+    if top_k < 1:
+        raise ValueError("top_k must be at least 1")
+
+    psycopg = _psycopg()
+    with psycopg.connect(_database_url()) as connection:
+        with connection.cursor(row_factory=psycopg.rows.dict_row) as cursor:
+            cursor.execute(
+                """
+                WITH opening_parents AS (
+                    SELECT
+                        parent.*,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY parent.doc_id
+                            ORDER BY
+                                COALESCE(parent.page_numbers[1], 2147483647),
+                                parent.id
+                        ) AS opening_rank
+                    FROM parents AS parent
+                    WHERE parent.doc_id = ANY(%s)
+                )
+                SELECT
+                    document.id AS document_id,
+                    document.summary AS document_summary,
+                    parent.id AS parent_id,
+                    parent.parent_text,
+                    parent.page_numbers AS parent_page_numbers,
+                    child.id AS chunk_id,
+                    child.text_with_context AS child_text,
+                    child.page_numbers
+                FROM documents AS document
+                JOIN opening_parents AS parent
+                  ON parent.doc_id = document.id
+                 AND parent.opening_rank <= 2
+                JOIN LATERAL (
+                    SELECT source_child.id, source_child.text_with_context,
+                           source_child.page_numbers
+                    FROM children AS source_child
+                    WHERE source_child.parent_id = parent.id
+                    ORDER BY
+                        COALESCE(source_child.page_numbers[1], 2147483647),
+                        source_child.id
+                    LIMIT 1
+                ) AS child ON TRUE
+                WHERE document.id = ANY(%s)
+                ORDER BY document.id, parent.opening_rank
+                LIMIT %s
+                """,
+                (document_ids, document_ids, top_k),
+            )
+            records = list(cursor.fetchall())
+
+    if not records:
+        return {
+            "status": "not_found",
+            "message": "The attached documents have no indexed opening content.",
+            "confidence": {
+                "status": "not_found",
+                "rrf_score": 0.0,
+                "vector_distance": None,
+                "lexical_match": False,
+                "rrf_score_margin": 0.0,
+                "reasons": ["No opening parent and child records were available."],
+            },
+            "evidence": [],
+        }
+
+    evidence: list[GroundedEvidence] = [
+        {
+            "chunk_id": str(record["chunk_id"]),
+            "child_text": str(record["child_text"]),
+            "parent_id": str(record["parent_id"]),
+            "parent_text": str(record["parent_text"]),
+            "document_id": str(record["document_id"]),
+            "page_numbers": list(record["page_numbers"] or []),
+            "parent_page_numbers": list(record["parent_page_numbers"] or []),
+            "rrf_score": 1.0,
+            "vector_distance": 0.0,
+            "lexical_match": True,
+            "rrf_score_margin": 1.0,
+            "reranker_score": 1.0,
+            "figures": [],
+            "tables": [],
+            "matched_table_chunks": [],
+        }
+        for record in records
+    ]
+    return {
+        "status": "grounded",
+        "message": "Stored document overview and opening evidence loaded.",
+        "confidence": {
+            "status": "grounded",
+            "rrf_score": 1.0,
+            "vector_distance": 0.0,
+            "lexical_match": True,
+            "rrf_score_margin": 1.0,
+            "reasons": [],
+        },
+        "evidence": evidence,
     }

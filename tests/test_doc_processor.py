@@ -64,7 +64,10 @@ def test_process_document_with_real_docling_and_gemini(
 
     assert chunks
     assert parents
-    assert document_metadata["document_id"].startswith("quarterly_growth_report-")
+    assert document_metadata["document_id"].startswith("sha256-")
+    assert document_metadata["content_sha256"] == document_metadata[
+        "document_id"
+    ].removeprefix("sha256-")
     assert figures
     figure_ids = {figure["figure_id"] for figure in figures}
     assert all(figure["caption"] for figure in figures)

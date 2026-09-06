@@ -62,6 +62,81 @@ class Pipe:
         return ""
 
     @staticmethod
+    def _local_utility_response(
+        task: str | None,
+        prompt: str,
+        task_body: dict[str, Any] | None,
+    ) -> str | None:
+        """Handle Open WebUI metadata tasks without starting a Morpheus workflow."""
+        normalized_task = (task or "").strip().lower()
+        normalized_prompt = prompt.strip().lower()
+        if not normalized_task and not (
+            normalized_prompt.startswith("### task:")
+            and "### guidelines:" in normalized_prompt
+            and "### output:" in normalized_prompt
+            and "### chat history:" in normalized_prompt
+        ):
+            return None
+
+        if normalized_task == "title_generation" or (
+            not normalized_task
+            and "generate a concise title summarizing the chat history"
+            in normalized_prompt
+        ):
+            source_messages = (
+                task_body.get("messages", []) if isinstance(task_body, dict) else []
+            )
+            first_user_text = next(
+                (
+                    Pipe._content_to_text(message.get("content"))
+                    for message in source_messages
+                    if isinstance(message, dict) and message.get("role") == "user"
+                ),
+                "Morpheus Chat",
+            )
+            words = re.findall(r"[A-Za-z0-9]+", first_user_text)
+            title = " ".join(words[:4]).strip() or "Morpheus Chat"
+            return json.dumps({"title": title})
+        if normalized_task == "follow_up_generation" or (
+            not normalized_task
+            and "suggest 3-5 relevant follow-up questions or prompts"
+            in normalized_prompt
+        ):
+            return json.dumps({"follow_ups": []})
+        if normalized_task == "tags_generation" or (
+            not normalized_task
+            and "generate 1-3 broad tags categorizing the main themes"
+            in normalized_prompt
+        ):
+            return json.dumps({"tags": ["General"]})
+        if normalized_task == "query_generation" or (
+            not normalized_task
+            and "analyze the chat history to determine the necessity of generating search queries"
+            in normalized_prompt
+        ):
+            return json.dumps({"queries": []})
+        if normalized_task == "emoji_generation":
+            return json.dumps({"emoji": ""})
+        if normalized_task in {"image_prompt_generation", "autocomplete_generation"}:
+            return ""
+        return None
+
+    @staticmethod
+    def _unwrap_openwebui_context_prompt(prompt: str) -> str:
+        """Recover the original question from Open WebUI's built-in RAG wrapper."""
+        normalized = prompt.strip().lower()
+        marker = "</context>"
+        if not (
+            normalized.startswith("### task:")
+            and "respond to the user query using the provided context" in normalized
+            and marker in normalized
+        ):
+            return prompt
+        marker_index = normalized.rfind(marker)
+        original_query = prompt[marker_index + len(marker) :].strip()
+        return original_query or prompt
+
+    @staticmethod
     def _attached_pdf_paths(files: list[dict[str, Any]] | None) -> list[Path]:
         """Return readable PDF attachments from Open WebUI's reserved files argument."""
         pdf_paths: list[Path] = []
@@ -262,6 +337,8 @@ class Pipe:
         __metadata__: dict[str, Any] | None = None,
         __chat_id__: str | None = None,
         __session_id__: str | None = None,
+        __task__: str | None = None,
+        __task_body__: dict[str, Any] | None = None,
         __event_emitter__: EventEmitter | None = None,
         __event_call__: EventCall | None = None,
         __files__: list[dict[str, Any]] | None = None,
@@ -278,6 +355,15 @@ class Pipe:
         ]
         if not messages or messages[-1]["role"] != "user":
             return "Please send a text question to Morpheus."
+
+        utility_response = self._local_utility_response(
+            __task__, messages[-1]["content"], __task_body__
+        )
+        if utility_response is not None:
+            return utility_response
+        messages[-1]["content"] = self._unwrap_openwebui_context_prompt(
+            messages[-1]["content"]
+        )
 
         user_id = str((__user__ or {}).get("id", "usr_openwebui"))
         body_metadata = (

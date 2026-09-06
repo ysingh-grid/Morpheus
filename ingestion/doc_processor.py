@@ -72,6 +72,7 @@ class DocumentMetadata(TypedDict):
     """Document-level metadata shared by its parents, children, and figures."""
 
     document_id: str
+    content_sha256: str
     source_path: str
     summary: str
 
@@ -138,14 +139,19 @@ def _encoding() -> tiktoken.Encoding:
     return tiktoken.get_encoding("cl100k_base")
 
 
-def document_id_for_file(file_path: str | Path) -> str:
-    """Return the stable content-aware identifier used by ingestion and upload deduplication."""
+def document_content_sha256(file_path: str | Path) -> str:
+    """Return the complete SHA-256 digest for one document's bytes."""
     source_path = Path(file_path)
     content_hash = hashlib.sha256()
     with source_path.open("rb") as source_file:
         for block in iter(lambda: source_file.read(1_048_576), b""):
             content_hash.update(block)
-    return f"{source_path.stem}-{content_hash.hexdigest()[:16]}"
+    return content_hash.hexdigest()
+
+
+def document_id_for_file(file_path: str | Path) -> str:
+    """Return a filename-independent identifier for exact-content deduplication."""
+    return f"sha256-{document_content_sha256(file_path)}"
 
 
 def _document_id(source_path: Path) -> str:
@@ -723,7 +729,8 @@ def process_document(
     _report_progress(progress_callback, 80, "generating_document_summary")
     summary = _summarize_document(markdown)
     _report_progress(progress_callback, 87, "document_summary_generated")
-    document_id = document_id_for_file(source_path)
+    content_sha256 = document_content_sha256(source_path)
+    document_id = f"sha256-{content_sha256}"
 
     chunks: list[ProcessedChunk] = []
     parents: list[ParentBlock] = []
@@ -812,6 +819,7 @@ def process_document(
     return {
         "document": {
             "document_id": document_id,
+            "content_sha256": content_sha256,
             "source_path": str(source_path),
             "summary": summary,
         },
