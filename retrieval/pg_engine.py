@@ -14,6 +14,8 @@ import re
 from pathlib import Path
 from typing import Any, Callable, Literal, TypedDict
 
+from langsmith import traceable
+
 from core.config import llm_client
 
 logger = logging.getLogger(__name__)
@@ -404,6 +406,7 @@ def document_ingestion_stats(document_id: str) -> dict[str, int] | None:
     return {key: int(value) for key, value in row.items()}
 
 
+@traceable(name="get_full_table", run_type="tool")
 def get_full_table(doc_id: str, table_id: str) -> dict[str, Any] | None:
     """Retrieve full normalized table content and metadata by document and table ID."""
     if not doc_id.strip() or not table_id.strip():
@@ -685,6 +688,7 @@ def consolidate_document_identity(
     }
 
 
+@traceable(name="ingest_bundle", run_type="tool")
 def ingest_bundle(
     bundle_json: dict[str, Any],
     progress_callback: ProgressCallback | None = None,
@@ -850,6 +854,7 @@ def ingest_bundle(
     }
 
 
+@traceable(name="reindex_child_embeddings", run_type="tool")
 def reindex_child_embeddings(
     document_ids: list[str], progress_callback: ProgressCallback | None = None
 ) -> int:
@@ -1002,6 +1007,7 @@ def attach_documents_to_session(
     )
 
 
+@traceable(name="flashrank_rerank", run_type="tool")
 def _flashrank_rerank(
     query: str, records: list[dict[str, Any]], top_k: int
 ) -> list[GroundedEvidence]:
@@ -1118,6 +1124,7 @@ def _prioritize_policy_records(
     return [*matching, *nonmatching], requested_page, requested_figure
 
 
+@traceable(name="assess_confidence", run_type="tool")
 def _assess_confidence(
     records: list[dict[str, Any]],
     policy: str = "semantic",
@@ -1220,6 +1227,7 @@ def _assess_confidence(
     }
 
 
+@traceable(name="hybrid_search_and_join", run_type="retriever")
 def hybrid_search_and_join(
     query: str,
     top_k: int = 5,
@@ -1290,6 +1298,7 @@ def hybrid_search_and_join(
     }
 
 
+@traceable(name="document_overview_and_join", run_type="retriever")
 def document_overview_and_join(
     document_ids: list[str], top_k: int = 2
 ) -> RetrievalResponse:

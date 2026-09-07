@@ -8,6 +8,7 @@ import os
 import shlex
 from typing import TYPE_CHECKING, Any, TypedDict
 
+from langsmith import traceable
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
@@ -204,6 +205,7 @@ def _result_to_dict(result: Any) -> dict[str, Any]:
     return {"content": str(result)}
 
 
+@traceable(name="call_mcp_tool", run_type="tool")
 async def call_mcp_tool(
     server_command: str,
     server_args: list[str],

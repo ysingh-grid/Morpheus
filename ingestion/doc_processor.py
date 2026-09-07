@@ -15,6 +15,7 @@ from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import OcrMacOptions, PdfPipelineOptions
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling_core.types.doc import DocItemLabel, PictureItem, TableItem, TextItem
+from langsmith import traceable
 
 from core.config import DEFAULT_MODEL, llm_client
 
@@ -681,6 +682,7 @@ def _split_tokens(text: str, limit: int) -> list[str]:
     return chunks
 
 
+@traceable(name="process_document", run_type="parser")
 def process_document(
     file_path: str,
     progress_callback: ProgressCallback | None = None,

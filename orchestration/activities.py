@@ -18,6 +18,7 @@ from openai import RateLimitError
 from pydantic import BaseModel, Field, ValidationError
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
+from langsmith import trace, traceable
 
 from core.config import DEFAULT_MODEL, llm_client
 from ingestion.doc_processor import (
@@ -316,6 +317,7 @@ def reindex_chunk_batch_activity(chunks: list[dict[str, str]]) -> str:
     raise RuntimeError("Reindexing exhausted its rate-limit retries.")
 
 
+@traceable(name="extract_document_facts", run_type="chain")
 def _extract_document_facts(document_name: str, summary: str) -> UserFactExtraction:
     """Extract durable organization, domain, and project context from an ingested document."""
     if not summary.strip():
@@ -442,6 +444,7 @@ async def run_agent_graph_activity(state: dict[str, Any]) -> dict[str, Any]:
     return dict(result)
 
 
+@traceable(name="history_for_user", run_type="chain")
 def _history_for_user(user_id: str, session_id: str) -> SessionContext:
     """Load compact durable memories and document scope for the current session."""
     psycopg = _psycopg()
@@ -872,6 +875,7 @@ async def execute_tool_activity(
     return {"tool_result_id": result_id, "tool_name": tool_name}
 
 
+@traceable(name="load_evidence_by_references", run_type="tool")
 def _load_evidence_by_references(
     references: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -992,6 +996,7 @@ def _load_evidence_by_references(
     return hydrated
 
 
+@traceable(name="load_mcp_results", run_type="tool")
 def _load_mcp_results(references: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Hydrate stored tool payloads only while generating the answer."""
     result_ids = [
@@ -1080,6 +1085,7 @@ def _source_citations_are_valid(
     )
 
 
+@traceable(name="extract_facts", run_type="chain")
 def _extract_facts(prompt: str, response: str) -> UserFactExtraction:
     """Extract durable user profile, preference, project, and domain facts from the exchange."""
     completion = llm_client.beta.chat.completions.parse(

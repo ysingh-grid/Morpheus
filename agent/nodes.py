@@ -7,6 +7,7 @@ import logging
 import re
 from typing import Any
 
+from langsmith import traceable
 from openai import APIError
 
 from agent.state import AgentPlan, AgentState
@@ -143,6 +144,7 @@ def _conversation_retrieval_context(state: AgentState, current_query: str) -> st
     return "\n".join(reversed(context_parts))[:700]
 
 
+@traceable(name="scope_document_query", run_type="chain")
 def _scope_document_query(plan: AgentPlan, state: AgentState) -> AgentPlan:
     """Expand underspecified document follow-ups before their hybrid retrieval pass."""
     documents = state.get("attached_documents", [])
@@ -173,6 +175,7 @@ def _scope_document_query(plan: AgentPlan, state: AgentState) -> AgentPlan:
     return plan
 
 
+@traceable(name="fallback_plan", run_type="chain")
 def _fallback_plan(state: AgentState) -> AgentPlan:
     """Return a conservative tool plan if Gemini planning is temporarily unavailable."""
     query = state.get("query", "")
@@ -222,6 +225,7 @@ def _fallback_plan(state: AgentState) -> AgentPlan:
     )
 
 
+@traceable(name="create_agent_plan", run_type="chain")
 def _create_agent_plan(state: AgentState) -> AgentPlan:
     """Ask Gemini to choose zero, one, or multiple tools for the current turn."""
     if _conversation_transform_request(state):
@@ -392,6 +396,7 @@ def load_history_node(state: AgentState) -> AgentState:
     }
 
 
+@traceable(name="planner_node", run_type="chain")
 def planner_node(state: AgentState) -> AgentState:
     """Let Gemini plan the turn, then select one bounded next action."""
     if state.get("iteration_count", 0) >= state.get("max_turns", 5):
@@ -412,6 +417,7 @@ def hybrid_search_node(_state: AgentState) -> AgentState:
     return {}
 
 
+@traceable(name="verify_groundedness_node", run_type="chain")
 def verify_groundedness_node(state: AgentState) -> AgentState:
     """Apply confidence-verifier output without performing an LLM call here."""
     return {
@@ -425,6 +431,7 @@ def mcp_search_node(_state: AgentState) -> AgentState:
     return {}
 
 
+@traceable(name="ask_clarification_node", run_type="chain")
 def ask_clarification_node(state: AgentState) -> AgentState:
     """Return a safe clarification or no-answer response without external I/O."""
     response = state.get("retrieval_response", {})

@@ -15,6 +15,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
+from langsmith import traceable
 from temporalio.client import Client
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError
@@ -135,6 +136,7 @@ def _message_role(message: dict[str, Any]) -> str:
     return role
 
 
+@traceable(name="sanitize_messages", run_type="chain")
 def _sanitize_messages(
     messages: list[dict[str, Any]],
 ) -> tuple[str, list[dict[str, Any]]]:
