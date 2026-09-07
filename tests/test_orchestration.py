@@ -42,7 +42,11 @@ from orchestration.activities import (
     verify_borderline_confidence_activity,
 )
 import orchestration.activities as workflow_activities
-from orchestration.workflows import AgentWorkflow, BatchReindexWorkflow, DocumentIngestionWorkflow
+from orchestration.workflows import (
+    AgentWorkflow,
+    BatchReindexWorkflow,
+    DocumentIngestionWorkflow,
+)
 from agent.nodes import load_history_node
 from orchestration.mcp_client import resolve_mcp_tool
 from retrieval.pg_engine import (
@@ -84,7 +88,8 @@ def test_reindex_chunk_batch_activity_retries_rate_limits_before_writing() -> No
     assert reindex.call_count == 2
     sleep.assert_called_once_with(1)
     assert any(
-        call.args[0]["stage"] == "reindex_rate_limited" for call in heartbeat.call_args_list
+        call.args[0]["stage"] == "reindex_rate_limited"
+        for call in heartbeat.call_args_list
     )
 
 
@@ -269,7 +274,9 @@ def test_execute_tool_activity_routes_get_full_table() -> None:
     ):
         reference = asyncio.run(
             workflow_activities.execute_tool_activity(
-                "session-1", "get_full_table", {"doc_id": "doc-1", "table_id": "table-1"}
+                "session-1",
+                "get_full_table",
+                {"doc_id": "doc-1", "table_id": "table-1"},
             )
         )
 
@@ -637,12 +644,18 @@ def test_generate_answer_activity_pins_user_facts_and_personalizes_prompt() -> N
         ]
     )
     messages = [
-        {"role": "system", "content": "Known user fact (organization): organization = IFC"},
+        {
+            "role": "system",
+            "content": "Known user fact (organization): organization = IFC",
+        },
         {"role": "user", "content": "What was the total?"},
     ]
 
     with (
-        patch("orchestration.activities._load_evidence_by_references", return_value=evidence),
+        patch(
+            "orchestration.activities._load_evidence_by_references",
+            return_value=evidence,
+        ),
         patch("orchestration.activities._load_mcp_results", return_value=[]),
         patch.object(
             workflow_activities.llm_client.chat.completions,
@@ -650,7 +663,9 @@ def test_generate_answer_activity_pins_user_facts_and_personalizes_prompt() -> N
             return_value=response,
         ) as create,
     ):
-        answer = generate_answer_activity("What was the total?", [{"chunk_id": "c1", "parent_id": "p1"}], [], messages)
+        answer = generate_answer_activity(
+            "What was the total?", [{"chunk_id": "c1", "parent_id": "p1"}], [], messages
+        )
 
     assert "The total was 42" in answer
     user_payload = create.call_args.kwargs["messages"][1]["content"]
@@ -763,7 +778,9 @@ def _next_action(state: dict[str, Any]) -> dict[str, Any]:
         result["next_action"] = (
             "hybrid_search"
             if remaining and remaining[0] == "hybrid_search"
-            else "mcp_search" if remaining else "ask_clarification"
+            else "mcp_search"
+            if remaining
+            else "ask_clarification"
         )
     elif remaining := [
         tool for tool in plan["tool_sequence"] if tool not in completed_tools
@@ -898,6 +915,7 @@ async def _run_fake_workflow(
     choices: tuple[str, ...] = (),
     mcp_activity: Callable[..., Any] = _mcp,
     messages: list[dict[str, Any]] | None = None,
+    user_facts_activity: Callable[..., Any] = _record_user_facts,
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     """Run the workflow with isolated activity doubles and optional HITL signals."""
     CALLS.clear()
@@ -913,7 +931,7 @@ async def _run_fake_workflow(
         _direct_answer,
         _persist_session,
         _summarize_session_history,
-        _record_user_facts,
+        user_facts_activity,
     ]
     async with await WorkflowEnvironment.start_time_skipping() as environment:
         with ThreadPoolExecutor(max_workers=2) as executor:
@@ -950,6 +968,25 @@ async def _run_fake_workflow(
                 return paused_state, await handle.result()
 
 
+@activity.defn(name="extract_user_facts_activity")
+def _saved_user_facts(_user_id: str, _prompt: str, _response: str) -> bool:
+    """Report persisted facts for an explicit-memory workflow test."""
+    return True
+
+
+def test_agent_workflow_confirms_explicit_persistent_memory_save() -> None:
+    """An explicit request waits for fact persistence before returning the answer."""
+    _paused_state, result = asyncio.run(
+        _run_fake_workflow(
+            "Add information about me to persistent storage.",
+            user_facts_activity=_saved_user_facts,
+        )
+    )
+
+    assert "saved the relevant profile information" in result["final_answer"].lower()
+    assert "user_facts_persisted_on_request" in result["execution_history"]
+
+
 @activity.defn(name="hash_and_deduplicate_document_activity")
 def _document_hash(_file_path: str) -> dict[str, Any]:
     """Return a new-document result for durable ingestion workflow coverage."""
@@ -968,7 +1005,9 @@ def _document_parse_after_worker_restart(_file_path: str) -> dict[str, Any]:
     """Fail once mid-parse to model a worker loss before a retry resumes work."""
     CALLS["document_parse"] += 1
     if CALLS["document_parse"] == 1:
-        raise ApplicationError("worker restarted during Docling parsing", type="WorkerLost")
+        raise ApplicationError(
+            "worker restarted during Docling parsing", type="WorkerLost"
+        )
     return {
         "bundle_reference": "file:///staging/ingestion-test.bundle.json",
         "document_id": "sha256-ingestion-test",
@@ -1093,7 +1132,9 @@ def _reindex_batch_after_network_drop(chunks: list[dict[str, str]]) -> str:
     CALLS["reindex_batch"] += 1
     chunk_ids = [chunk["id"] for chunk in chunks]
     if chunk_ids == ["child-1", "child-2"] and CALLS["reindex_batch"] == 1:
-        raise ApplicationError("temporary embedding network failure", type="NetworkError")
+        raise ApplicationError(
+            "temporary embedding network failure", type="NetworkError"
+        )
     COMMITTED_REINDEX_IDS.extend(chunk_ids)
     return chunk_ids[-1]
 
@@ -1126,7 +1167,9 @@ async def _run_batch_reindex_workflow() -> dict[str, Any]:
                 return await handle.result()
 
 
-def test_batch_reindex_workflow_retries_only_failed_batch_without_duplicate_updates() -> None:
+def test_batch_reindex_workflow_retries_only_failed_batch_without_duplicate_updates() -> (
+    None
+):
     """Network retries preserve the cursor and commit every child ID exactly once."""
     result = asyncio.run(_run_batch_reindex_workflow())
 
@@ -1326,7 +1369,9 @@ def test_registry_selected_calculator_runs_through_generic_tool_activity() -> No
     _, result = asyncio.run(_run_fake_workflow("calculator"))
 
     assert result["status"] == "completed"
-    assert result["evidence"] == [{"tool_result_id": "tool-1", "tool_name": "calculator"}]
+    assert result["evidence"] == [
+        {"tool_result_id": "tool-1", "tool_name": "calculator"}
+    ]
     assert result["sources_used"] == ["mcp_tools"]
     assert CALLS["mcp"] == 1
 

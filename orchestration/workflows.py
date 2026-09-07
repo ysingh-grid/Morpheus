@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import timedelta
 from typing import Any
 
@@ -36,6 +37,16 @@ with workflow.unsafe.imports_passed_through():
     )
 
 MAX_AGENT_TURNS = 5
+_PERSISTENT_MEMORY_REQUEST = re.compile(
+    r"\b(?:remember|save|store|add)\b.{0,80}\b(?:about me|my (?:profile|information|details)|"
+    r"persistent (?:memory|storage)|memory)\b|\b(?:persistent (?:memory|storage))\b",
+    re.IGNORECASE,
+)
+
+
+def _explicit_memory_save_requested(query: str) -> bool:
+    """Return whether the user explicitly asked to retain durable personal context."""
+    return bool(_PERSISTENT_MEMORY_REQUEST.search(query))
 
 
 @workflow.defn
@@ -89,7 +100,9 @@ class AgentWorkflow:
             activity_function,
             args=args,
             start_to_close_timeout=timedelta(seconds=timeout_seconds),
-            retry_policy=RetryPolicy(initial_interval=timedelta(seconds=1), maximum_attempts=attempts),
+            retry_policy=RetryPolicy(
+                initial_interval=timedelta(seconds=1), maximum_attempts=attempts
+            ),
         )
 
     @workflow.run
@@ -121,11 +134,16 @@ class AgentWorkflow:
             "max_turns": MAX_AGENT_TURNS,
             "verification_pending": False,
         }
+        memory_save_requested = _explicit_memory_save_requested(query)
         self.status = "loading_history"
         try:
-            session_context = await self._activity(load_history_activity, [user_id, session_id], 15, 2)
+            session_context = await self._activity(
+                load_history_activity, [user_id, session_id], 15, 2
+            )
             state["history"] = session_context.get("messages", [])
-            state["conversation_summary"] = session_context.get("conversation_summary", "")
+            state["conversation_summary"] = session_context.get(
+                "conversation_summary", ""
+            )
             state["document_ids"] = session_context.get("document_ids", [])
             state["attached_documents"] = session_context.get("attached_documents", [])
         except ActivityError:
@@ -147,7 +165,9 @@ class AgentWorkflow:
             action = state["next_action"]
             if action == "hybrid_search":
                 self.execution_history.append("pgvector_retrieval_started")
-                document_query = str(state.get("agent_plan", {}).get("document_query") or query)
+                document_query = str(
+                    state.get("agent_plan", {}).get("document_query") or query
+                )
                 document_lookup = str(
                     state.get("agent_plan", {}).get("document_lookup") or "semantic"
                 )
@@ -160,7 +180,9 @@ class AgentWorkflow:
                     )
                 except ActivityError:
                     self.execution_history.append("pgvector_retrieval_failed")
-                    state["tool_errors"]["hybrid_search"] = "Document retrieval was unavailable."
+                    state["tool_errors"]["hybrid_search"] = (
+                        "Document retrieval was unavailable."
+                    )
                     state["completed_tools"].append("hybrid_search")
                     continue
                 state["retrieval_response"] = retrieval
@@ -171,7 +193,10 @@ class AgentWorkflow:
                     retrieval["status"] != "grounded"
                     or not retrieval.get("confidence", {}).get("lexical_match", False)
                 )
-                if retrieval["status"] == "clarification_needed" or force_document_check:
+                if (
+                    retrieval["status"] == "clarification_needed"
+                    or force_document_check
+                ):
                     try:
                         state["context_sufficient"] = await self._activity(
                             verify_borderline_confidence_activity,
@@ -197,7 +222,8 @@ class AgentWorkflow:
                     (
                         name
                         for name in plan.get("tool_sequence", [])
-                        if name != "hybrid_search" and name not in state["completed_tools"]
+                        if name != "hybrid_search"
+                        and name not in state["completed_tools"]
                     ),
                     "",
                 )
@@ -230,7 +256,9 @@ class AgentWorkflow:
                         )
                 except ActivityError:
                     self.execution_history.append(f"mcp_tool_failed:{tool_name}")
-                    state["tool_errors"][tool_name] = f"The selected tool '{tool_name}' was unavailable."
+                    state["tool_errors"][tool_name] = (
+                        f"The selected tool '{tool_name}' was unavailable."
+                    )
                     state["completed_tools"].append(tool_name)
                     continue
                 state["mcp_results"] = [*state["mcp_results"], result_reference]
@@ -256,7 +284,8 @@ class AgentWorkflow:
                     self.status = "answer_generation_failed"
                     self.execution_history.append("answer_generation_failed")
                 else:
-                    self._publish_terminal_state(state, "completed")
+                    if not memory_save_requested:
+                        self._publish_terminal_state(state, "completed")
                     self.execution_history.append("answer_generated")
                 break
 
@@ -274,7 +303,8 @@ class AgentWorkflow:
                     self.status = "answer_generation_failed"
                     self.execution_history.append("answer_generation_failed")
                 else:
-                    self._publish_terminal_state(state, "completed")
+                    if not memory_save_requested:
+                        self._publish_terminal_state(state, "completed")
                     self.execution_history.append("answer_generated")
                 break
 
@@ -326,10 +356,43 @@ class AgentWorkflow:
                 continue
 
         else:
-            state["final_answer"] = "I could not complete this request safely. Please clarify it."
+            state["final_answer"] = (
+                "I could not complete this request safely. Please clarify it."
+            )
             self._publish_terminal_state(state, "turn_limit_reached")
             self.execution_history.append("agent_turn_limit_reached")
 
+        if memory_save_requested:
+            try:
+                facts_persisted = await self._activity(
+                    extract_user_facts_activity,
+                    [user_id, query, state.get("final_answer", "")],
+                    30,
+                    3,
+                )
+            except ActivityError:
+                self.execution_history.append("user_fact_persistence_failed")
+                state["final_answer"] = (
+                    f"{state.get('final_answer', '')}\n\n"
+                    "I could not save the requested information to persistent memory."
+                ).strip()
+            else:
+                if facts_persisted:
+                    self.execution_history.append("user_facts_persisted_on_request")
+                    state["final_answer"] = (
+                        f"{state.get('final_answer', '')}\n\n"
+                        "I saved the relevant profile information to persistent memory."
+                    ).strip()
+                else:
+                    self.execution_history.append("no_user_facts_to_persist_on_request")
+                    state["final_answer"] = (
+                        f"{state.get('final_answer', '')}\n\n"
+                        "I could not identify durable personal information to save from this exchange."
+                    ).strip()
+        else:
+            self._start_fact_extraction(user_id, query, state.get("final_answer", ""))
+        if memory_save_requested and self.status == "generating_answer":
+            self._publish_terminal_state(state, "completed")
         try:
             await self._activity(
                 persist_session_turn_activity,
@@ -352,7 +415,6 @@ class AgentWorkflow:
                 cancellation_type=workflow.ActivityCancellationType.ABANDON,
             )
             self.execution_history.append("session_history_summarization_started")
-        self._start_fact_extraction(user_id, query, state.get("final_answer", ""))
         self.execution_history.append("workflow_completed")
         self.final_answer = state.get("final_answer", "")
         return self._response(state)
@@ -363,7 +425,9 @@ class AgentWorkflow:
             extract_user_facts_activity,
             args=[user_id, query, answer],
             start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(initial_interval=timedelta(seconds=1), maximum_attempts=3),
+            retry_policy=RetryPolicy(
+                initial_interval=timedelta(seconds=1), maximum_attempts=3
+            ),
             cancellation_type=workflow.ActivityCancellationType.ABANDON,
         )
         self.execution_history.append("user_fact_extraction_started")
@@ -448,13 +512,19 @@ class DocumentIngestionWorkflow:
             args=args,
             start_to_close_timeout=timedelta(seconds=timeout_seconds),
             heartbeat_timeout=(
-                timedelta(seconds=heartbeat_seconds) if heartbeat_seconds is not None else None
+                timedelta(seconds=heartbeat_seconds)
+                if heartbeat_seconds is not None
+                else None
             ),
-            retry_policy=RetryPolicy(initial_interval=timedelta(seconds=1), maximum_attempts=attempts),
+            retry_policy=RetryPolicy(
+                initial_interval=timedelta(seconds=1), maximum_attempts=attempts
+            ),
         )
 
     @workflow.run
-    async def run(self, file_path: str, user_id: str, session_id: str) -> dict[str, Any]:
+    async def run(
+        self, file_path: str, user_id: str, session_id: str
+    ) -> dict[str, Any]:
         """Execute the four durable ingestion stages for one saved upload."""
         self.status = "processing"
         try:
@@ -548,7 +618,11 @@ class BatchReindexWorkflow:
         }
 
     async def _activity(
-        self, activity_function: Any, args: list[Any], timeout_seconds: int, attempts: int
+        self,
+        activity_function: Any,
+        args: list[Any],
+        timeout_seconds: int,
+        attempts: int,
     ) -> Any:
         """Run one idempotent reindex activity with exponential Temporal retries."""
         return await workflow.execute_activity(
@@ -591,7 +665,9 @@ class BatchReindexWorkflow:
                 )
                 expected_last_id = str(chunks[-1]["id"])
                 if last_processed_id != expected_last_id:
-                    raise RuntimeError("Reindex activity returned an unexpected cursor ID.")
+                    raise RuntimeError(
+                        "Reindex activity returned an unexpected cursor ID."
+                    )
                 self.last_processed_id = last_processed_id
                 self.processed_count += len(chunks)
         except (ActivityError, RuntimeError):

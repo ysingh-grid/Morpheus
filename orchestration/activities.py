@@ -9,6 +9,9 @@ import os
 import platform
 import re
 import time
+from collections.abc import Callable
+from functools import wraps
+from inspect import iscoroutinefunction
 from pathlib import Path
 from threading import Lock
 from typing import Any
@@ -66,6 +69,55 @@ OPENWEBUI_UTILITY_TASK_MARKERS = (
 )
 
 
+def _temporal_trace_metadata() -> dict[str, str]:
+    """Return stable Temporal identifiers for correlating independently traced activities."""
+    try:
+        info = activity.info()
+    except RuntimeError:
+        return {"temporal_execution_context": "direct"}
+    return {
+        "temporal_workflow_id": str(info.workflow_id),
+        "temporal_workflow_run_id": str(info.workflow_run_id),
+        "temporal_activity_id": str(info.activity_id),
+        "temporal_activity_type": str(info.activity_type),
+    }
+
+
+def _traced_temporal_activity(
+    name: str, run_type: str = "chain"
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Wrap a Temporal activity in a LangSmith root trace with durable correlation IDs."""
+
+    def decorate(function: Callable[..., Any]) -> Callable[..., Any]:
+        if iscoroutinefunction(function):
+
+            @wraps(function)
+            async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+                with trace(
+                    name,
+                    run_type=run_type,
+                    inputs={"activity": name},
+                    metadata=_temporal_trace_metadata(),
+                ):
+                    return await function(*args, **kwargs)
+
+            return async_wrapper
+
+        @wraps(function)
+        def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+            with trace(
+                name,
+                run_type=run_type,
+                inputs={"activity": name},
+                metadata=_temporal_trace_metadata(),
+            ):
+                return function(*args, **kwargs)
+
+        return sync_wrapper
+
+    return decorate
+
+
 class UserFact(BaseModel):
     """One durable preference or entity explicitly disclosed by a user."""
 
@@ -119,7 +171,9 @@ def _read_staging_json(reference: str) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
-        raise _non_retryable(f"Ingestion staging payload is invalid: {reference}") from error
+        raise _non_retryable(
+            f"Ingestion staging payload is invalid: {reference}"
+        ) from error
     if not isinstance(payload, dict):
         raise _non_retryable(f"Ingestion staging payload is invalid: {reference}")
     return payload
@@ -138,6 +192,7 @@ def _is_openwebui_utility_prompt(prompt: str) -> bool:
 
 
 @activity.defn
+@_traced_temporal_activity("ingest_document_activity", "chain")
 def ingest_document_activity(file_path: str) -> dict[str, int]:
     """Process one local document and atomically load its normalized bundle."""
     path = Path(file_path)
@@ -180,6 +235,7 @@ def hash_and_deduplicate_document_activity(file_path: str) -> dict[str, Any]:
 
 
 @activity.defn
+@_traced_temporal_activity("parse_docling_layout_activity", "chain")
 def parse_docling_layout_activity(file_path: str) -> dict[str, Any]:
     """Parse one document with Docling while heartbeating durable layout progress."""
     path = Path(file_path)
@@ -197,7 +253,9 @@ def parse_docling_layout_activity(file_path: str) -> dict[str, Any]:
         try:
             bundle = process_document(str(path), progress_callback=heartbeat_progress)
         except (OSError, RuntimeError, ValueError) as error:
-            raise _non_retryable(f"Unable to parse document layout: {file_path}") from error
+            raise _non_retryable(
+                f"Unable to parse document layout: {file_path}"
+            ) from error
     finally:
         if uses_exclusive_ocr_lock:
             _DOCLING_OCR_LOCK.release()
@@ -211,6 +269,7 @@ def parse_docling_layout_activity(file_path: str) -> dict[str, Any]:
 
 
 @activity.defn
+@_traced_temporal_activity("generate_embeddings_activity", "llm")
 def generate_embeddings_activity(bundle_reference: str) -> dict[str, Any]:
     """Generate staged child embeddings and back off exponentially on Gemini limits."""
     bundle = _read_staging_json(bundle_reference)
@@ -250,10 +309,14 @@ def generate_embeddings_activity(bundle_reference: str) -> dict[str, Any]:
             }
         )
     if len(embeddings) != len(chunks):
-        raise RuntimeError("Gemini returned a different number of embeddings than chunks.")
+        raise RuntimeError(
+            "Gemini returned a different number of embeddings than chunks."
+        )
     if any(len(embedding) != EMBEDDING_DIMENSION for embedding in embeddings):
         raise RuntimeError("Gemini returned embeddings with an unexpected dimension.")
-    embeddings_reference = _write_staging_json({"embeddings": embeddings}, ".embeddings")
+    embeddings_reference = _write_staging_json(
+        {"embeddings": embeddings}, ".embeddings"
+    )
     return {"embeddings_reference": embeddings_reference, "children": len(chunks)}
 
 
@@ -293,7 +356,9 @@ def reindex_chunk_batch_activity(chunks: list[dict[str, str]]) -> str:
 
     for attempt in range(5):
         try:
-            last_processed_id = reindex_child_embedding_batch(chunks, heartbeat_progress)
+            last_processed_id = reindex_child_embedding_batch(
+                chunks, heartbeat_progress
+            )
             activity.heartbeat(
                 {
                     "stage": "reindex_batch_committed",
@@ -347,11 +412,14 @@ def _extract_document_facts(document_name: str, summary: str) -> UserFactExtract
         )
         return completion.choices[0].message.parsed or UserFactExtraction(facts=[])
     except Exception:
-        logger.warning("Document fact extraction failed; continuing ingestion", exc_info=True)
+        logger.warning(
+            "Document fact extraction failed; continuing ingestion", exc_info=True
+        )
         return UserFactExtraction(facts=[])
 
 
 @activity.defn
+@_traced_temporal_activity("commit_document_bundle_activity", "chain")
 def commit_document_bundle_activity(
     bundle_reference: str,
     embeddings_reference: str,
@@ -369,7 +437,9 @@ def commit_document_bundle_activity(
     except (OSError, RuntimeError, ValueError) as error:
         raise _non_retryable("Unable to commit document bundle.") from error
 
-    attach_documents_to_session(user_id, session_id, [str(bundle["document"]["document_id"])])
+    attach_documents_to_session(
+        user_id, session_id, [str(bundle["document"]["document_id"])]
+    )
     doc_name = Path(str(bundle["document"]["source_path"])).name
     doc_summary = str(bundle["document"].get("summary", ""))
     extracted = _extract_document_facts(doc_name, doc_summary)
@@ -429,6 +499,7 @@ def run_pgvector_retrieval_activity(query: str, top_k: int = 5) -> dict[str, Any
 
 
 @activity.defn
+@_traced_temporal_activity("run_agent_graph_activity", "chain")
 async def run_agent_graph_activity(state: dict[str, Any]) -> dict[str, Any]:
     """Execute one bounded, side-effect-free LangGraph decision pass."""
     from agent.graph import compile_agent_graph
@@ -658,6 +729,7 @@ def _is_borderline_confidence(response: dict[str, Any]) -> bool:
 
 
 @activity.defn
+@_traced_temporal_activity("run_agent_retrieval_activity", "retriever")
 def run_agent_retrieval_activity(
     query: str,
     top_k: int = 5,
@@ -745,16 +817,22 @@ def _validate_tool_arguments(
     if parameters.get("type") != "object":
         raise ValueError(f"MCP tool '{tool_name}' must declare object parameters.")
     required = parameters.get("required", [])
-    if not isinstance(required, list) or not all(isinstance(item, str) for item in required):
+    if not isinstance(required, list) or not all(
+        isinstance(item, str) for item in required
+    ):
         raise ValueError(f"MCP tool '{tool_name}' has invalid required parameters.")
     missing = [name for name in required if name not in arguments]
     if missing:
-        raise ValueError(f"MCP tool '{tool_name}' is missing required arguments: {missing}.")
+        raise ValueError(
+            f"MCP tool '{tool_name}' is missing required arguments: {missing}."
+        )
     properties = parameters.get("properties", {})
     if parameters.get("additionalProperties") is False and isinstance(properties, dict):
         unexpected = sorted(set(arguments) - set(properties))
         if unexpected:
-            raise ValueError(f"MCP tool '{tool_name}' received unknown arguments: {unexpected}.")
+            raise ValueError(
+                f"MCP tool '{tool_name}' received unknown arguments: {unexpected}."
+            )
 
 
 @activity.defn
@@ -799,6 +877,7 @@ def get_full_table_activity(
 
 
 @activity.defn
+@_traced_temporal_activity("execute_tool_activity", "tool")
 async def execute_tool_activity(
     session_id: str, tool_name: str, arguments: dict[str, Any]
 ) -> dict[str, str]:
@@ -1101,7 +1180,8 @@ def _extract_facts(prompt: str, response: str) -> UserFactExtraction:
                     "1. Explicit user preferences (e.g. formatting, style, tone, constraints). "
                     "2. User-owned profile details revealed in the conversation or user-owned document evidence "
                     "(e.g. organization, role, current projects, technical stack, research topics, domain expertise). "
-                    "Assign a clear category ('preference', 'identity', 'organization', 'project', 'skill', 'domain'). "
+                    "Use category 'identity' for a job title or role, and assign a clear category "
+                    "('preference', 'identity', 'organization', 'project', 'skill', 'domain'). "
                     "Return concise, factual key-value pairs (e.g. fact_key='primary_organization', fact_value='IFC', category='organization'). "
                     "Do not extract transient conversational phrasing or third-party trivia that does not relate to the user. "
                     "Return an empty facts list when there are no user-relevant facts."
@@ -1120,6 +1200,7 @@ def _extract_facts(prompt: str, response: str) -> UserFactExtraction:
 
 
 @activity.defn
+@_traced_temporal_activity("generate_answer_activity", "chain")
 def generate_answer_activity(
     query: str,
     evidence_references: list[dict[str, Any]],
@@ -1162,7 +1243,9 @@ def generate_answer_activity(
                 "for table facts, figure bounding-box page_no for figure facts, child page_numbers for child "
                 "facts, and parent_page_numbers only when necessary. Never infer a page number. "
                 "Do not invent citations, facts, or web results. If a source URL is present in web evidence, "
-                "cite it naturally."
+                "cite it naturally. When the user explicitly asks to save relevant personal details, do not "
+                "claim persistent storage is unavailable; state that the facts supported by this exchange will "
+                "be saved after the response is generated."
             ),
         },
         {
@@ -1216,6 +1299,7 @@ def generate_answer_activity(
 
 
 @activity.defn
+@_traced_temporal_activity("generate_direct_answer_activity", "chain")
 def generate_direct_answer_activity(
     query: str,
     messages: list[dict[str, Any]],
@@ -1250,7 +1334,9 @@ def generate_direct_answer_activity(
                     "No new evidence-bearing tool result is available for this turn, so never "
                     "claim that you newly inspected an uploaded document or searched the web. "
                     "If a requested tool failed, state that limitation instead of fabricating its result. "
-                    "If the user asks for missing details, ask one focused clarification."
+                    "If the user asks for missing details, ask one focused clarification. When the user "
+                    "explicitly asks to save relevant personal details, do not claim persistent storage is "
+                    "unavailable; state that the facts supported by this exchange will be saved."
                 ),
             },
             {
@@ -1272,6 +1358,7 @@ def generate_direct_answer_activity(
 
 
 @activity.defn
+@_traced_temporal_activity("extract_user_facts_activity", "chain")
 def extract_user_facts_activity(user_id: str, prompt: str, response: str) -> bool:
     """Extract explicitly stated user facts and upsert them into PostgreSQL."""
     if not user_id.strip():

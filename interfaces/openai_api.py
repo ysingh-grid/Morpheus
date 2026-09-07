@@ -271,17 +271,28 @@ def _batch_workflow_ids(job_id: str) -> list[str] | None:
     try:
         encoded = job_id.removeprefix(INGESTION_BATCH_PREFIX).encode("ascii")
         values = json.loads(base64.urlsafe_b64decode(encoded).decode("utf-8"))
-    except (binascii.Error, UnicodeDecodeError, ValueError, json.JSONDecodeError) as error:
+    except (
+        binascii.Error,
+        UnicodeDecodeError,
+        ValueError,
+        json.JSONDecodeError,
+    ) as error:
         raise HTTPException(
             status_code=404,
-            detail={"error": {"message": "Upload job was not found.", "type": "not_found"}},
+            detail={
+                "error": {"message": "Upload job was not found.", "type": "not_found"}
+            },
         ) from error
-    if not isinstance(values, list) or not values or not all(
-        isinstance(value, str) and value for value in values
+    if (
+        not isinstance(values, list)
+        or not values
+        or not all(isinstance(value, str) and value for value in values)
     ):
         raise HTTPException(
             status_code=404,
-            detail={"error": {"message": "Upload job was not found.", "type": "not_found"}},
+            detail={
+                "error": {"message": "Upload job was not found.", "type": "not_found"}
+            },
         )
     return values
 
@@ -587,7 +598,9 @@ async def start_document_upload_job(
                     attach_documents_to_session, resolved_user, chat_id, [document_id]
                 )
             workflow_ids.append(workflow_id)
-            documents.append({"filename": original_filename, "document_id": document_id})
+            documents.append(
+                {"filename": original_filename, "document_id": document_id}
+            )
     except Exception as error:
         logger.exception("Temporal ingestion workflow start failed")
         raise HTTPException(
@@ -599,7 +612,9 @@ async def start_document_upload_job(
                 }
             },
         ) from error
-    job_id = workflow_ids[0] if len(workflow_ids) == 1 else _ingestion_batch_id(workflow_ids)
+    job_id = (
+        workflow_ids[0] if len(workflow_ids) == 1 else _ingestion_batch_id(workflow_ids)
+    )
     return DocumentUploadJobResponse(
         job_id=job_id,
         status="queued",
@@ -625,7 +640,9 @@ async def get_document_upload_job(job_id: str) -> DocumentUploadJobResponse:
             ]
         )
     except Exception as error:
-        logger.exception("Temporal ingestion progress query failed", extra={"job_id": job_id})
+        logger.exception(
+            "Temporal ingestion progress query failed", extra={"job_id": job_id}
+        )
         raise HTTPException(
             status_code=404,
             detail={
@@ -647,6 +664,7 @@ async def list_models() -> dict[str, Any]:
 
 
 @app.post("/v1/chat/completions")
+@traceable(name="openai_chat_completion", run_type="chain")
 async def chat_completions(body: dict[str, Any]) -> dict[str, Any]:
     """Screen a chat turn and await its Temporal agent workflow response."""
     messages = body.get("messages")
@@ -697,6 +715,7 @@ async def chat_completions(body: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.post("/v1/chat/workflows", status_code=202, response_model=WorkflowStateResponse)
+@traceable(name="openai_chat_workflow_start", run_type="chain")
 async def start_chat_workflow(body: dict[str, Any]) -> WorkflowStateResponse:
     """Start a chat workflow without blocking a UI that must handle HITL events."""
     messages = body.get("messages")
@@ -752,7 +771,8 @@ async def submit_clarification(
         state = await handle.query("get_workflow_state")
     except RPCError as error:
         logger.exception(
-            "Temporal clarification state query failed", extra={"workflow_id": workflow_id}
+            "Temporal clarification state query failed",
+            extra={"workflow_id": workflow_id},
         )
         raise HTTPException(
             status_code=404,
@@ -779,7 +799,8 @@ async def submit_clarification(
         await handle.signal("user_clarification_signal", request.choice)
     except RPCError as error:
         logger.exception(
-            "Temporal clarification signal was rejected", extra={"workflow_id": workflow_id}
+            "Temporal clarification signal was rejected",
+            extra={"workflow_id": workflow_id},
         )
         raise HTTPException(
             status_code=409,
