@@ -33,10 +33,13 @@ from retrieval.pg_engine import (
     _psycopg,
     _child_retrieval_text,
     attach_documents_to_session,
+    count_reindexable_children,
     document_ingestion_stats,
+    fetch_reindexable_child_batch,
     document_overview_and_join,
     ingest_bundle,
     hybrid_search_and_join,
+    reindex_child_embedding_batch,
 )
 
 from orchestration.mcp_client import call_mcp_tool, resolve_mcp_tool
@@ -250,6 +253,66 @@ def generate_embeddings_activity(bundle_reference: str) -> dict[str, Any]:
         raise RuntimeError("Gemini returned embeddings with an unexpected dimension.")
     embeddings_reference = _write_staging_json({"embeddings": embeddings}, ".embeddings")
     return {"embeddings_reference": embeddings_reference, "children": len(chunks)}
+
+
+@activity.defn
+def count_reindexable_children_activity() -> int:
+    """Load the total number of child rows for reindex workflow progress reporting."""
+    return count_reindexable_children()
+
+
+@activity.defn
+def fetch_unindexed_chunk_batch_activity(
+    batch_size: int, cursor_id: str | None
+) -> list[dict[str, str]]:
+    """Fetch the next stable child slice for a full embedding rebuild."""
+    try:
+        batch = fetch_reindexable_child_batch(batch_size, cursor_id)
+    except ValueError as error:
+        raise _non_retryable(str(error)) from error
+    activity.heartbeat(
+        {
+            "stage": "reindex_batch_fetched",
+            "cursor_id": cursor_id,
+            "children": len(batch),
+        }
+    )
+    return batch
+
+
+@activity.defn
+def reindex_chunk_batch_activity(chunks: list[dict[str, str]]) -> str:
+    """Embed and atomically update one batch, heartbeating sub-batch progress."""
+    if not chunks:
+        raise _non_retryable("Cannot reindex an empty child batch.")
+
+    def heartbeat_progress(_percent: int, _stage: str, details: dict[str, Any]) -> None:
+        activity.heartbeat({"stage": "reindexing_embeddings", **details})
+
+    for attempt in range(5):
+        try:
+            last_processed_id = reindex_child_embedding_batch(chunks, heartbeat_progress)
+            activity.heartbeat(
+                {
+                    "stage": "reindex_batch_committed",
+                    "last_processed_id": last_processed_id,
+                    "children": len(chunks),
+                }
+            )
+            return last_processed_id
+        except RateLimitError:
+            if attempt == 4:
+                raise
+            delay_seconds = 2**attempt
+            activity.heartbeat(
+                {
+                    "stage": "reindex_rate_limited",
+                    "attempt": attempt + 1,
+                    "retry_in_seconds": delay_seconds,
+                }
+            )
+            time.sleep(delay_seconds)
+    raise RuntimeError("Reindexing exhausted its rate-limit retries.")
 
 
 @activity.defn

@@ -14,8 +14,10 @@ from temporalio.worker import Worker
 from orchestration.activities import (
     attach_existing_document_activity,
     commit_document_bundle_activity,
+    count_reindexable_children_activity,
     execute_tool_activity,
     extract_user_facts_activity,
+    fetch_unindexed_chunk_batch_activity,
     generate_embeddings_activity,
     generate_direct_answer_activity,
     generate_answer_activity,
@@ -27,10 +29,11 @@ from orchestration.activities import (
     run_agent_graph_activity,
     run_agent_retrieval_activity,
     run_pgvector_retrieval_activity,
+    reindex_chunk_batch_activity,
     summarize_session_history_activity,
     verify_borderline_confidence_activity,
 )
-from orchestration.workflows import AgentWorkflow, DocumentIngestionWorkflow
+from orchestration.workflows import AgentWorkflow, BatchReindexWorkflow, DocumentIngestionWorkflow
 
 logger = logging.getLogger(__name__)
 
@@ -49,15 +52,18 @@ async def run_worker() -> None:
         worker = Worker(
             client,
             task_queue=TASK_QUEUE,
-            workflows=[AgentWorkflow, DocumentIngestionWorkflow],
+            workflows=[AgentWorkflow, DocumentIngestionWorkflow, BatchReindexWorkflow],
             activities=[
                 ingest_document_activity,
                 hash_and_deduplicate_document_activity,
                 parse_docling_layout_activity,
                 generate_embeddings_activity,
                 commit_document_bundle_activity,
+                count_reindexable_children_activity,
                 attach_existing_document_activity,
+                fetch_unindexed_chunk_batch_activity,
                 run_pgvector_retrieval_activity,
+                reindex_chunk_batch_activity,
                 run_agent_graph_activity,
                 execute_tool_activity,
                 load_history_activity,

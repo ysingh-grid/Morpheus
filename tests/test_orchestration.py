@@ -14,6 +14,8 @@ from typing import Any, Callable
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
+import httpx
+from openai import RateLimitError
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
@@ -33,11 +35,12 @@ from orchestration.activities import (
     persist_session_turn_activity,
     run_agent_graph_activity,
     run_agent_retrieval_activity,
+    reindex_chunk_batch_activity,
     summarize_session_history_activity,
     verify_borderline_confidence_activity,
 )
 import orchestration.activities as workflow_activities
-from orchestration.workflows import AgentWorkflow, DocumentIngestionWorkflow
+from orchestration.workflows import AgentWorkflow, BatchReindexWorkflow, DocumentIngestionWorkflow
 from agent.nodes import load_history_node
 from orchestration.mcp_client import resolve_mcp_tool
 from retrieval.pg_engine import (
@@ -48,6 +51,39 @@ from retrieval.pg_engine import (
 )
 
 CALLS: Counter[str] = Counter()
+COMMITTED_REINDEX_IDS: list[str] = []
+
+
+def test_reindex_chunk_batch_activity_retries_rate_limits_before_writing() -> None:
+    """A rate-limited embedding attempt backs off and retries the same safe batch."""
+    rate_limit = RateLimitError(
+        "rate limited",
+        response=httpx.Response(
+            429, request=httpx.Request("POST", "https://example.invalid/embeddings")
+        ),
+        body=None,
+    )
+    chunks = [
+        {"id": "child-1", "retrieval_text": "first"},
+        {"id": "child-2", "retrieval_text": "second"},
+    ]
+
+    with (
+        patch(
+            "orchestration.activities.reindex_child_embedding_batch",
+            side_effect=[rate_limit, "child-2"],
+        ) as reindex,
+        patch("orchestration.activities.time.sleep") as sleep,
+        patch("orchestration.activities.activity.heartbeat") as heartbeat,
+    ):
+        last_processed_id = reindex_chunk_batch_activity(chunks)
+
+    assert last_processed_id == "child-2"
+    assert reindex.call_count == 2
+    sleep.assert_called_once_with(1)
+    assert any(
+        call.args[0]["stage"] == "reindex_rate_limited" for call in heartbeat.call_args_list
+    )
 
 
 def test_calculator_is_a_registered_secondary_mcp_tool() -> None:
@@ -726,6 +762,85 @@ def test_document_ingestion_workflow_retries_parse_without_duplicate_records() -
     ]
     assert CALLS["document_parse"] == 2
     assert CALLS["document_commit"] == 1
+
+
+@activity.defn(name="count_reindexable_children_activity")
+def _count_reindexable_children() -> int:
+    """Return the stable total used by the batch-reindex status query."""
+    CALLS["reindex_count"] += 1
+    return 3
+
+
+@activity.defn(name="fetch_unindexed_chunk_batch_activity")
+def _fetch_reindex_batch(
+    batch_size: int, cursor_id: str | None
+) -> list[dict[str, str]]:
+    """Yield deterministic pages of child rows from a stable cursor."""
+    CALLS["reindex_fetch"] += 1
+    assert batch_size == 2
+    batches = {
+        None: [
+            {"id": "child-1", "retrieval_text": "first"},
+            {"id": "child-2", "retrieval_text": "second"},
+        ],
+        "child-2": [{"id": "child-3", "retrieval_text": "third"}],
+        "child-3": [],
+    }
+    return batches[cursor_id]
+
+
+@activity.defn(name="reindex_chunk_batch_activity")
+def _reindex_batch_after_network_drop(chunks: list[dict[str, str]]) -> str:
+    """Fail one batch once, then prove Temporal retries only that atomic unit."""
+    CALLS["reindex_batch"] += 1
+    chunk_ids = [chunk["id"] for chunk in chunks]
+    if chunk_ids == ["child-1", "child-2"] and CALLS["reindex_batch"] == 1:
+        raise ApplicationError("temporary embedding network failure", type="NetworkError")
+    COMMITTED_REINDEX_IDS.extend(chunk_ids)
+    return chunk_ids[-1]
+
+
+async def _run_batch_reindex_workflow() -> dict[str, Any]:
+    """Execute the reindex workflow against local retry-aware activity doubles."""
+    CALLS.clear()
+    COMMITTED_REINDEX_IDS.clear()
+    task_queue = f"batch-reindex-{uuid4()}"
+    activities = [
+        _count_reindexable_children,
+        _fetch_reindex_batch,
+        _reindex_batch_after_network_drop,
+    ]
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            async with Worker(
+                environment.client,
+                task_queue=task_queue,
+                workflows=[BatchReindexWorkflow],
+                activities=activities,
+                activity_executor=executor,
+            ):
+                handle = await environment.client.start_workflow(
+                    BatchReindexWorkflow.run,
+                    args=[2],
+                    id=f"reindex-{uuid4()}",
+                    task_queue=task_queue,
+                )
+                return await handle.result()
+
+
+def test_batch_reindex_workflow_retries_only_failed_batch_without_duplicate_updates() -> None:
+    """Network retries preserve the cursor and commit every child ID exactly once."""
+    result = asyncio.run(_run_batch_reindex_workflow())
+
+    assert result == {
+        "status": "completed",
+        "processed_count": 3,
+        "total_count": 3,
+        "last_processed_id": "child-3",
+        "error": None,
+    }
+    assert CALLS["reindex_batch"] == 3
+    assert COMMITTED_REINDEX_IDS == ["child-1", "child-2", "child-3"]
 
 
 def test_parse_docling_layout_activity_serializes_macos_ocr(tmp_path: Path) -> None:

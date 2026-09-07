@@ -16,9 +16,11 @@ with workflow.unsafe.imports_passed_through():
     from orchestration.activities import (
         attach_existing_document_activity,
         commit_document_bundle_activity,
+        count_reindexable_children_activity,
         execute_tool_activity,
         extract_user_facts_activity,
         generate_embeddings_activity,
+        fetch_unindexed_chunk_batch_activity,
         generate_direct_answer_activity,
         generate_answer_activity,
         hash_and_deduplicate_document_activity,
@@ -27,6 +29,7 @@ with workflow.unsafe.imports_passed_through():
         persist_session_turn_activity,
         run_agent_graph_activity,
         run_agent_retrieval_activity,
+        reindex_chunk_batch_activity,
         summarize_session_history_activity,
         verify_borderline_confidence_activity,
     )
@@ -505,3 +508,82 @@ class DocumentIngestionWorkflow:
         self.status = "completed"
         self._set_progress(stage="completed", progress=100)
         return self.get_ingestion_progress()
+
+
+@workflow.defn
+class BatchReindexWorkflow:
+    """Durably rebuild child embeddings in independent, retry-safe batches."""
+
+    def __init__(self) -> None:
+        """Initialize compact, queryable reindex progress state."""
+        self.status = "queued"
+        self.processed_count = 0
+        self.total_count = 0
+        self.last_processed_id: str | None = None
+        self.error: str | None = None
+
+    @workflow.query
+    def get_reindex_status(self) -> dict[str, Any]:
+        """Expose durable batch progress without returning child text or vectors."""
+        return {
+            "status": self.status,
+            "processed_count": self.processed_count,
+            "total_count": self.total_count,
+            "last_processed_id": self.last_processed_id,
+            "error": self.error,
+        }
+
+    async def _activity(
+        self, activity_function: Any, args: list[Any], timeout_seconds: int, attempts: int
+    ) -> Any:
+        """Run one idempotent reindex activity with exponential Temporal retries."""
+        return await workflow.execute_activity(
+            activity_function,
+            args=args,
+            start_to_close_timeout=timedelta(seconds=timeout_seconds),
+            heartbeat_timeout=timedelta(seconds=60),
+            retry_policy=RetryPolicy(
+                initial_interval=timedelta(seconds=1),
+                backoff_coefficient=2.0,
+                maximum_interval=timedelta(seconds=30),
+                maximum_attempts=attempts,
+            ),
+        )
+
+    @workflow.run
+    async def run(self, batch_size: int = 100) -> dict[str, Any]:
+        """Process all children after the current cursor without workflow payload bloat."""
+        if batch_size < 1 or batch_size > 1_000:
+            self.status = "failed"
+            self.error = "batch_size must be between 1 and 1000."
+            return self.get_reindex_status()
+        self.status = "counting"
+        try:
+            self.total_count = int(
+                await self._activity(count_reindexable_children_activity, [], 30, 3)
+            )
+            self.status = "reindexing"
+            while True:
+                chunks = await self._activity(
+                    fetch_unindexed_chunk_batch_activity,
+                    [batch_size, self.last_processed_id],
+                    30,
+                    3,
+                )
+                if not chunks:
+                    break
+                last_processed_id = str(
+                    await self._activity(reindex_chunk_batch_activity, [chunks], 300, 5)
+                )
+                expected_last_id = str(chunks[-1]["id"])
+                if last_processed_id != expected_last_id:
+                    raise RuntimeError("Reindex activity returned an unexpected cursor ID.")
+                self.last_processed_id = last_processed_id
+                self.processed_count += len(chunks)
+        except (ActivityError, RuntimeError):
+            self.status = "failed"
+            self.error = "Batch reindexing failed. Check the Morpheus service logs."
+            return self.get_reindex_status()
+
+        self.status = "completed"
+        return self.get_reindex_status()

@@ -861,6 +861,72 @@ def reindex_child_embeddings(
     return len(records)
 
 
+def fetch_reindexable_child_batch(
+    batch_size: int, cursor_id: str | None = None
+) -> list[dict[str, str]]:
+    """Load one stable ID-ordered child slice for a resumable embedding rebuild."""
+    if batch_size < 1 or batch_size > 1_000:
+        raise ValueError("batch_size must be between 1 and 1000.")
+    normalized_cursor = cursor_id.strip() if cursor_id else ""
+    psycopg = _psycopg()
+    with psycopg.connect(_database_url()) as connection:
+        with connection.cursor(row_factory=psycopg.rows.dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT id, retrieval_text
+                FROM children
+                WHERE id > %s
+                ORDER BY id
+                LIMIT %s
+                """,
+                (normalized_cursor, batch_size),
+            )
+            return [
+                {"id": str(record["id"]), "retrieval_text": str(record["retrieval_text"])}
+                for record in cursor.fetchall()
+            ]
+
+
+def count_reindexable_children() -> int:
+    """Return the number of child rows included in a full embedding rebuild."""
+    psycopg = _psycopg()
+    with psycopg.connect(_database_url()) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) FROM children")
+            row = cursor.fetchone()
+    return int(row[0]) if row else 0
+
+
+def reindex_child_embedding_batch(
+    chunks: list[dict[str, str]], progress_callback: ProgressCallback | None = None
+) -> str:
+    """Atomically replace embeddings for one ID-ordered, retry-safe child batch."""
+    if not chunks:
+        raise ValueError("Cannot reindex an empty child batch.")
+    chunk_ids = [chunk.get("id", "") for chunk in chunks]
+    retrieval_texts = [chunk.get("retrieval_text", "") for chunk in chunks]
+    if (
+        any(not isinstance(chunk_id, str) or not chunk_id for chunk_id in chunk_ids)
+        or any(not isinstance(text, str) or not text for text in retrieval_texts)
+        or len(set(chunk_ids)) != len(chunk_ids)
+        or chunk_ids != sorted(chunk_ids)
+    ):
+        raise ValueError("Reindex batches require unique ID-ordered chunks with retrieval text.")
+    embeddings = _embed(retrieval_texts, progress_callback)
+    psycopg = _psycopg()
+    with psycopg.connect(_database_url()) as connection:
+        with connection.cursor() as cursor:
+            cursor.executemany(
+                "UPDATE children SET embedding = %s::vector WHERE id = %s",
+                [
+                    (_vector_literal(embedding), chunk_id)
+                    for chunk_id, embedding in zip(chunk_ids, embeddings, strict=True)
+                ],
+            )
+    logger.info("Reindexed child embedding batch", extra={"children": len(chunks)})
+    return chunk_ids[-1]
+
+
 def attach_documents_to_session(
     user_id: str, session_id: str, document_ids: list[str]
 ) -> None:
