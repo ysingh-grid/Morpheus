@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import httpx
+import pytest
 from openai import RateLimitError
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -31,6 +32,7 @@ from orchestration.activities import (
     execute_tool_activity,
     generate_direct_answer_activity,
     generate_answer_activity,
+    get_full_table_activity,
     load_history_activity,
     persist_session_turn_activity,
     run_agent_graph_activity,
@@ -103,6 +105,117 @@ def test_calculator_is_a_registered_secondary_mcp_tool() -> None:
     assert calculator["args"] == ["--stdio"]
     assert calculator["spec"]["timeout_seconds"] == 12
     assert calculator["spec"]["parameters"]["required"] == ["expression"]
+
+
+def test_calculator_default_command_and_args() -> None:
+    """The calculator MCP tool defaults to uvx and mcp-server-calculator without overrides."""
+    with patch.dict(os.environ, {}, clear=False):
+        os.environ.pop("CALCULATOR_MCP_SERVER_COMMAND", None)
+        os.environ.pop("CALCULATOR_MCP_SERVER_ARGS", None)
+        os.environ.pop("CALCULATOR_MCP_TIMEOUT_SECONDS", None)
+        calculator = resolve_mcp_tool("calculator")
+
+    assert calculator["command"] == "uvx"
+    assert calculator["args"] == ["mcp-server-calculator"]
+    assert calculator["spec"]["timeout_seconds"] == 10
+
+
+def test_get_full_table_is_a_registered_native_tool() -> None:
+    """The get_full_table tool is declared in the registry with doc_id and table_id parameters."""
+    tool = resolve_mcp_tool("get_full_table")
+    assert tool["spec"]["name"] == "get_full_table"
+    assert tool["spec"]["parameters"]["required"] == ["doc_id", "table_id"]
+    assert tool["command"] == "native"
+
+
+def test_get_full_table_activity_rejects_unattached_document() -> None:
+    """An attempt to query an unattached document raises UnauthorizedDocumentAccess."""
+    with pytest.raises(ApplicationError) as exception:
+        workflow_activities.get_full_table_activity(
+            "session-1",
+            "doc-unauthorized",
+            "table-1",
+            ["doc-allowed-1", "doc-allowed-2"],
+        )
+    assert exception.value.type == "UnauthorizedDocumentAccess"
+    assert "not attached to this chat session" in str(exception.value)
+
+
+def test_get_full_table_activity_persists_reference() -> None:
+    """A valid full table query fetches the markdown and persists an agent_tool_results row."""
+    cursor = MagicMock()
+    connection = MagicMock()
+    connection.cursor.return_value.__enter__.return_value = cursor
+    psycopg = MagicMock()
+    psycopg.connect.return_value.__enter__.return_value = connection
+    fake_table = {
+        "doc_id": "doc-1",
+        "table_id": "table-1",
+        "markdown": "| Col A | Col B |\n| --- | --- |\n| 1 | 2 |",
+        "heading": "Balance Sheet",
+        "caption": "Consolidated statements",
+        "context": "Financial section",
+        "row_count": 2,
+        "column_count": 2,
+    }
+
+    with (
+        patch("orchestration.activities._psycopg", return_value=psycopg),
+        patch("orchestration.activities.get_full_table", return_value=fake_table),
+    ):
+        reference = workflow_activities.get_full_table_activity(
+            "session-1", "doc-1", "table-1", ["doc-1"]
+        )
+
+    assert reference["tool_name"] == "get_full_table"
+    assert reference["tool_result_id"]
+    statement, params = cursor.execute.call_args.args
+    assert "INSERT INTO agent_tool_results" in statement
+    assert params[1:3] == ("session-1", "get_full_table")
+    saved_result = json.loads(params[3])
+    assert saved_result["markdown"] == fake_table["markdown"]
+    assert saved_result["row_count"] == 2
+
+
+def test_execute_tool_activity_routes_get_full_table() -> None:
+    """execute_tool_activity inspects user_sessions and executes get_full_table."""
+    session_cursor = MagicMock()
+    session_cursor.fetchone.return_value = {"document_ids": ["doc-1"]}
+    session_conn = MagicMock()
+    session_conn.cursor.return_value.__enter__.return_value = session_cursor
+
+    insert_cursor = MagicMock()
+    insert_conn = MagicMock()
+    insert_conn.cursor.return_value.__enter__.return_value = insert_cursor
+
+    psycopg = MagicMock()
+    psycopg.connect.side_effect = [
+        MagicMock(__enter__=MagicMock(return_value=session_conn)),
+        MagicMock(__enter__=MagicMock(return_value=insert_conn)),
+    ]
+    fake_table = {
+        "doc_id": "doc-1",
+        "table_id": "table-1",
+        "markdown": "| Col A |",
+        "heading": "H",
+        "caption": "C",
+        "context": "Ctx",
+        "row_count": 1,
+        "column_count": 1,
+    }
+
+    with (
+        patch("orchestration.activities._psycopg", return_value=psycopg),
+        patch("orchestration.activities.get_full_table", return_value=fake_table),
+    ):
+        reference = asyncio.run(
+            workflow_activities.execute_tool_activity(
+                "session-1", "get_full_table", {"doc_id": "doc-1", "table_id": "table-1"}
+            )
+        )
+
+    assert reference["tool_name"] == "get_full_table"
+    assert reference["tool_result_id"]
 
 
 def test_execute_tool_activity_persists_only_a_compact_calculator_reference() -> None:
@@ -444,6 +557,10 @@ def _next_action(state: dict[str, Any]) -> dict[str, Any]:
             tool_sequence = ["calculator"]
             intent = "document_and_web"
             document_only = False
+        elif result["query"] == "inspect table":
+            tool_sequence = ["get_full_table"]
+            intent = "document"
+            document_only = True
         elif result["query"] == "ambiguous requires approval":
             tool_sequence = ["hybrid_search"]
             intent = "document"
@@ -458,6 +575,8 @@ def _next_action(state: dict[str, Any]) -> dict[str, Any]:
             "tool_arguments": (
                 {"calculator": {"expression": "2 + 2"}}
                 if result["query"] == "calculator"
+                else {"get_full_table": {"doc_id": "document-1", "table_id": "table-1"}}
+                if result["query"] == "inspect table"
                 else {}
             ),
             "document_only": document_only,
@@ -573,6 +692,18 @@ async def _flaky_mcp(
     return {"tool_result_id": "tool-1", "tool_name": tool_name}
 
 
+@activity.defn(name="get_full_table_activity")
+def _get_full_table_mock(
+    _session_id: str,
+    _doc_id: str,
+    _table_id: str,
+    _allowed_document_ids: list[str],
+) -> dict[str, str]:
+    """Provide a deterministic full table result double."""
+    CALLS["get_full_table"] += 1
+    return {"tool_result_id": "table-result-1", "tool_name": "get_full_table"}
+
+
 @activity.defn(name="generate_answer_activity")
 def _answer(
     _query: str,
@@ -610,6 +741,7 @@ async def _run_fake_workflow(
         _decision_graph,
         _retrieval,
         _verify,
+        _get_full_table_mock,
         mcp_activity,
         _answer,
         _direct_answer,
@@ -843,6 +975,18 @@ def test_batch_reindex_workflow_retries_only_failed_batch_without_duplicate_upda
     assert COMMITTED_REINDEX_IDS == ["child-1", "child-2", "child-3"]
 
 
+def test_workflow_executes_get_full_table_tool() -> None:
+    """The workflow dispatches get_full_table_activity and retains its result reference."""
+    _, result = asyncio.run(_run_fake_workflow("inspect table"))
+
+    assert result["status"] == "completed"
+    assert result["evidence"] == [
+        {"tool_result_id": "table-result-1", "tool_name": "get_full_table"}
+    ]
+    assert "mcp_tool_started:get_full_table" in result["execution_history"]
+    assert CALLS["get_full_table"] == 1
+
+
 def test_parse_docling_layout_activity_serializes_macos_ocr(tmp_path: Path) -> None:
     """Apple Vision parsing never overlaps across concurrent worker activity threads."""
     source = tmp_path / "document.pdf"
@@ -922,6 +1066,7 @@ async def _run_real_workflow(query: str) -> dict[str, Any]:
         run_agent_graph_activity,
         run_agent_retrieval_activity,
         verify_borderline_confidence_activity,
+        get_full_table_activity,
         generate_answer_activity,
         generate_direct_answer_activity,
         persist_session_turn_activity,

@@ -1,7 +1,7 @@
 """Static contract checks for the pgvector retrieval implementation."""
 
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from retrieval.pg_engine import (
     EMBEDDING_DIMENSION,
@@ -9,6 +9,7 @@ from retrieval.pg_engine import (
     _embed,
     _matched_table_text_for_reranking,
     _vector_literal,
+    get_full_table,
 )
 
 
@@ -75,3 +76,39 @@ def test_embedding_batches_report_completed_child_counts() -> None:
 
     assert len(result) == 101
     assert events[-1] == (85, "embedding_children", {"completed": 101, "total": 101})
+
+
+def test_get_full_table_queries_by_composite_key() -> None:
+    """Ensure get_full_table executes an index lookup by doc_id and table_id."""
+    cursor = MagicMock()
+    cursor.fetchone.return_value = {
+        "markdown": "| Metric | 2024 |\n| --- | --- |\n| Total Assets | $110B |",
+        "heading": "Table 1",
+        "caption": "Summary of assets",
+        "context": "Financial section",
+        "row_count": 2,
+        "column_count": 2,
+    }
+    connection = MagicMock()
+    connection.cursor.return_value.__enter__.return_value = cursor
+    psycopg = MagicMock()
+    psycopg.connect.return_value.__enter__.return_value = connection
+
+    with patch("retrieval.pg_engine._psycopg", return_value=psycopg):
+        result = get_full_table("doc-123", "table-456")
+
+    assert result == {
+        "doc_id": "doc-123",
+        "table_id": "table-456",
+        "markdown": "| Metric | 2024 |\n| --- | --- |\n| Total Assets | $110B |",
+        "heading": "Table 1",
+        "caption": "Summary of assets",
+        "context": "Financial section",
+        "row_count": 2,
+        "column_count": 2,
+    }
+    statement, params = cursor.execute.call_args.args
+    assert "FROM tables" in statement
+    assert "WHERE doc_id = %s AND id = %s" in statement
+    assert params == ("doc-123", "table-456")
+

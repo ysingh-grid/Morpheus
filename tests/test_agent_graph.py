@@ -119,6 +119,31 @@ def test_gemini_selected_registered_calculator_is_preserved_with_arguments() -> 
     assert plan.tool_arguments == {"calculator": {"expression": "2 + 2"}}
 
 
+def test_gemini_selected_get_full_table_is_preserved_with_arguments() -> None:
+    """Planner accepts native get_full_table tool with doc_id and table_id."""
+    selected_plan = AgentPlan(
+        intent="document",
+        tool_sequence=["get_full_table"],
+        tool_arguments={"get_full_table": {"doc_id": "doc-1", "table_id": "table-1"}},
+        reason="Inspect the complete balance sheet table.",
+    )
+    completion = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(parsed=selected_plan))]
+    )
+
+    with patch(
+        "agent.nodes.llm_client.beta.chat.completions.parse", return_value=completion
+    ):
+        plan = _create_agent_plan(
+            {"query": "Show me full table 1", "document_ids": ["doc-1"], "messages": []}
+        )
+
+    assert plan.tool_sequence == ["get_full_table"]
+    assert plan.tool_arguments == {
+        "get_full_table": {"doc_id": "doc-1", "table_id": "table-1"}
+    }
+
+
 def test_document_overview_query_uses_attached_document_profile() -> None:
     """A generic title request must retrieve the opening content of the scoped document."""
     plan = AgentPlan(

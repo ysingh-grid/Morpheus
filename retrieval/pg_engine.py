@@ -404,6 +404,36 @@ def document_ingestion_stats(document_id: str) -> dict[str, int] | None:
     return {key: int(value) for key, value in row.items()}
 
 
+def get_full_table(doc_id: str, table_id: str) -> dict[str, Any] | None:
+    """Retrieve full normalized table content and metadata by document and table ID."""
+    if not doc_id.strip() or not table_id.strip():
+        raise ValueError("doc_id and table_id must not be empty.")
+    psycopg = _psycopg()
+    with psycopg.connect(_database_url()) as connection:
+        with connection.cursor(row_factory=psycopg.rows.dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT markdown, heading, caption, context, row_count, column_count
+                FROM tables
+                WHERE doc_id = %s AND id = %s
+                """,
+                (doc_id, table_id),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            return {
+                "doc_id": doc_id,
+                "table_id": table_id,
+                "markdown": str(row["markdown"]),
+                "heading": str(row["heading"]),
+                "caption": str(row["caption"]),
+                "context": str(row["context"]),
+                "row_count": int(row["row_count"]),
+                "column_count": int(row["column_count"]),
+            }
+
+
 def _file_sha256(file_path: Path) -> str:
     """Hash a local document without loading the complete file into memory."""
     digest = hashlib.sha256()

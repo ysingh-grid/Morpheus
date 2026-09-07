@@ -37,6 +37,7 @@ from retrieval.pg_engine import (
     document_ingestion_stats,
     fetch_reindexable_child_batch,
     document_overview_and_join,
+    get_full_table,
     ingest_bundle,
     hybrid_search_and_join,
     reindex_child_embedding_batch,
@@ -700,6 +701,47 @@ def _validate_tool_arguments(
 
 
 @activity.defn
+def get_full_table_activity(
+    session_id: str,
+    doc_id: str,
+    table_id: str,
+    allowed_document_ids: list[str],
+) -> dict[str, str]:
+    """Retrieve full normalized table content for an attached document and persist reference."""
+    if not session_id.strip() or not doc_id.strip() or not table_id.strip():
+        raise _non_retryable("session_id, doc_id, and table_id must not be empty.")
+    if doc_id not in allowed_document_ids:
+        raise ApplicationError(
+            f"Document '{doc_id}' is not attached to this chat session.",
+            type="UnauthorizedDocumentAccess",
+            non_retryable=True,
+        )
+    table_data = get_full_table(doc_id, table_id)
+    if table_data is None:
+        raise ApplicationError(
+            f"Table '{table_id}' was not found in document '{doc_id}'.",
+            type="TableNotFound",
+            non_retryable=True,
+        )
+    result_id = str(uuid4())
+    psycopg = _psycopg()
+    with psycopg.connect(_database_url()) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO agent_tool_results (id, session_id, tool_name, result)
+                VALUES (%s, %s, %s, %s::jsonb)
+                """,
+                (result_id, session_id, "get_full_table", json.dumps(table_data)),
+            )
+    logger.info(
+        "Full table retrieved and stored",
+        extra={"session_id": session_id, "doc_id": doc_id, "table_id": table_id},
+    )
+    return {"tool_result_id": result_id, "tool_name": "get_full_table"}
+
+
+@activity.defn
 async def execute_tool_activity(
     session_id: str, tool_name: str, arguments: dict[str, Any]
 ) -> dict[str, str]:
@@ -708,6 +750,29 @@ async def execute_tool_activity(
         raise _non_retryable("session_id and tool_name must not be empty.")
     if not isinstance(arguments, dict):
         raise _non_retryable("MCP tool arguments must be a JSON object.")
+    if tool_name == "get_full_table":
+        doc_id = str(arguments.get("doc_id", ""))
+        table_id = str(arguments.get("table_id", ""))
+        if not doc_id or not table_id:
+            raise ApplicationError(
+                "doc_id and table_id are required arguments for get_full_table.",
+                type="InvalidInput",
+                non_retryable=True,
+            )
+        psycopg = _psycopg()
+        with psycopg.connect(_database_url()) as connection:
+            with connection.cursor(row_factory=psycopg.rows.dict_row) as cursor:
+                cursor.execute(
+                    "SELECT document_ids FROM user_sessions WHERE session_id = %s",
+                    (session_id,),
+                )
+                row = cursor.fetchone()
+                if row:
+                    raw_ids = row["document_ids"] if isinstance(row, dict) else row[0]
+                    allowed_ids = list(raw_ids or [])
+                else:
+                    allowed_ids = []
+        return get_full_table_activity(session_id, doc_id, table_id, allowed_ids)
     try:
         tool = resolve_mcp_tool(tool_name)
         _validate_tool_arguments(tool_name, tool["spec"]["parameters"], arguments)

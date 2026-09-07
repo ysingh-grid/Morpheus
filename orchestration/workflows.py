@@ -23,6 +23,7 @@ with workflow.unsafe.imports_passed_through():
         fetch_unindexed_chunk_batch_activity,
         generate_direct_answer_activity,
         generate_answer_activity,
+        get_full_table_activity,
         hash_and_deduplicate_document_activity,
         load_history_activity,
         parse_docling_layout_activity,
@@ -208,15 +209,28 @@ class AgentWorkflow:
                     continue
                 self.execution_history.append(f"mcp_tool_started:{tool_name}")
                 try:
-                    result_reference = await self._activity(
-                        execute_tool_activity,
-                        [session_id, tool_name, arguments],
-                        45,
-                        3,
-                    )
+                    if tool_name == "get_full_table":
+                        result_reference = await self._activity(
+                            get_full_table_activity,
+                            [
+                                session_id,
+                                str(arguments.get("doc_id", "")),
+                                str(arguments.get("table_id", "")),
+                                state.get("document_ids", []),
+                            ],
+                            30,
+                            2,
+                        )
+                    else:
+                        result_reference = await self._activity(
+                            execute_tool_activity,
+                            [session_id, tool_name, arguments],
+                            45,
+                            3,
+                        )
                 except ActivityError:
                     self.execution_history.append(f"mcp_tool_failed:{tool_name}")
-                    state["tool_errors"][tool_name] = "The selected MCP tool was unavailable."
+                    state["tool_errors"][tool_name] = f"The selected tool '{tool_name}' was unavailable."
                     state["completed_tools"].append(tool_name)
                     continue
                 state["mcp_results"] = [*state["mcp_results"], result_reference]

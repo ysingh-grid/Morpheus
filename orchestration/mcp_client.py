@@ -49,8 +49,37 @@ def _default_tool_registry() -> dict[str, dict[str, Any]]:
                 "additionalProperties": False,
             },
             "timeout_seconds": int(os.getenv("CALCULATOR_MCP_TIMEOUT_SECONDS", "10")),
-            "command": os.getenv("CALCULATOR_MCP_SERVER_COMMAND", ""),
-            "args": shlex.split(os.getenv("CALCULATOR_MCP_SERVER_ARGS", "")),
+            "command": os.getenv("CALCULATOR_MCP_SERVER_COMMAND", "uvx"),
+            "args": shlex.split(
+                os.getenv("CALCULATOR_MCP_SERVER_ARGS", "mcp-server-calculator")
+            ),
+            "env": {},
+        },
+        "get_full_table": {
+            "description": (
+                "Retrieve full normalized markdown, row count, column count, and context "
+                "for a specific table using doc_id and table_id from attached documents."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "doc_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The unique document identifier containing the table.",
+                    },
+                    "table_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The table identifier within the document.",
+                    },
+                },
+                "required": ["doc_id", "table_id"],
+                "additionalProperties": False,
+            },
+            "timeout_seconds": int(os.getenv("TABLE_TOOL_TIMEOUT_SECONDS", "30")),
+            "command": "native",
+            "args": [],
             "env": {},
         },
     }
