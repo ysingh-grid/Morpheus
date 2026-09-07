@@ -120,6 +120,65 @@ def test_calculator_default_command_and_args() -> None:
     assert calculator["spec"]["timeout_seconds"] == 10
 
 
+def test_fetch_is_a_registered_mcp_tool() -> None:
+    """The fetch MCP tool resolves to uvx mcp-server-fetch with a url parameter."""
+    tool = resolve_mcp_tool("fetch")
+    assert tool["spec"]["name"] == "fetch"
+    assert tool["command"] == "uvx"
+    assert tool["args"] == ["mcp-server-fetch"]
+    assert tool["spec"]["parameters"]["required"] == ["url"]
+    assert tool["server_tool_name"] == "fetch"
+
+
+def test_execute_tool_activity_maps_server_tool_name() -> None:
+    """execute_tool_activity invokes call_mcp_tool with server_tool_name if defined."""
+    cursor = MagicMock()
+    connection = MagicMock()
+    connection.cursor.return_value.__enter__.return_value = cursor
+    psycopg = MagicMock()
+    psycopg.connect.return_value.__enter__.return_value = connection
+    tool = {
+        "spec": {
+            "name": "calculator",
+            "description": "Math evaluator",
+            "parameters": {
+                "type": "object",
+                "properties": {"expression": {"type": "string"}},
+                "required": ["expression"],
+            },
+            "timeout_seconds": 10,
+        },
+        "command": "uvx",
+        "args": ["mcp-server-calculator"],
+        "server_tool_name": "calculate",
+        "env": {},
+    }
+
+    with (
+        patch("orchestration.activities._psycopg", return_value=psycopg),
+        patch("orchestration.activities.resolve_mcp_tool", return_value=tool),
+        patch(
+            "orchestration.activities.call_mcp_tool",
+            new=AsyncMock(return_value={"content": [{"text": "4"}]}),
+        ) as call,
+    ):
+        reference = asyncio.run(
+            workflow_activities.execute_tool_activity(
+                "session-1", "calculator", {"expression": "2 + 2"}
+            )
+        )
+
+    assert reference["tool_name"] == "calculator"
+    call.assert_awaited_once_with(
+        "uvx",
+        ["mcp-server-calculator"],
+        "calculate",
+        {"expression": "2 + 2"},
+        server_env={},
+        timeout_seconds=10,
+    )
+
+
 def test_get_full_table_is_a_registered_native_tool() -> None:
     """The get_full_table tool is declared in the registry with doc_id and table_id parameters."""
     tool = resolve_mcp_tool("get_full_table")

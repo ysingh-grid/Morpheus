@@ -15,13 +15,14 @@ if TYPE_CHECKING:
     from agent.state import ToolSpec
 
 
-class ResolvedMcpTool(TypedDict):
+class ResolvedMcpTool(TypedDict, total=False):
     """Concrete server configuration resolved for one registered MCP tool."""
 
     spec: ToolSpec
     command: str
     args: list[str]
     env: dict[str, str]
+    server_tool_name: str
 
 
 def _default_tool_registry() -> dict[str, dict[str, Any]]:
@@ -53,6 +54,27 @@ def _default_tool_registry() -> dict[str, dict[str, Any]]:
             "args": shlex.split(
                 os.getenv("CALCULATOR_MCP_SERVER_ARGS", "mcp-server-calculator")
             ),
+            "server_tool_name": os.getenv("CALCULATOR_MCP_TOOL_NAME", "calculate"),
+            "env": {},
+        },
+        "fetch": {
+            "description": "Download and extract clean text or markdown from a specific web URL.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The web URL to fetch content from",
+                    }
+                },
+                "required": ["url"],
+                "additionalProperties": False,
+            },
+            "timeout_seconds": int(os.getenv("FETCH_MCP_TIMEOUT_SECONDS", "25")),
+            "command": os.getenv("FETCH_MCP_SERVER_COMMAND", "uvx"),
+            "args": shlex.split(os.getenv("FETCH_MCP_SERVER_ARGS", "mcp-server-fetch")),
+            "server_tool_name": "fetch",
             "env": {},
         },
         "get_full_table": {
@@ -162,6 +184,7 @@ def resolve_mcp_tool(tool_name: str) -> ResolvedMcpTool:
         "spec": spec,
         "command": command,
         "args": args,
+        "server_tool_name": str(config.get("server_tool_name", tool_name)),
         "env": {
             key: os.getenv(value[1:], "") if value.startswith("$") else value
             for key, value in environment.items()

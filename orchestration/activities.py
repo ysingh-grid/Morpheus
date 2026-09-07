@@ -840,7 +840,7 @@ async def execute_tool_activity(
         result = await call_mcp_tool(
             tool["command"],
             tool["args"],
-            tool_name,
+            tool.get("server_tool_name", tool_name),
             arguments,
             server_env=tool["env"],
             timeout_seconds=tool["spec"]["timeout_seconds"],
