@@ -32,6 +32,7 @@ class AgentState(TypedDict, total=False):
     session_id: str
     messages: list[dict[str, str]]
     history: list[dict[str, str]]
+    conversation_summary: str
     document_ids: list[str]
     attached_documents: list[dict[str, str]]
     retrieved_evidence: list[dict[str, Any]]

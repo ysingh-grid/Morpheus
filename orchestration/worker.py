@@ -28,6 +28,7 @@ from orchestration.activities import (
     run_agent_graph_activity,
     run_agent_retrieval_activity,
     run_pgvector_retrieval_activity,
+    summarize_session_history_activity,
     verify_borderline_confidence_activity,
 )
 from orchestration.workflows import AgentWorkflow, DocumentIngestionWorkflow
@@ -62,6 +63,7 @@ async def run_worker() -> None:
                 execute_mcp_tool_activity,
                 load_history_activity,
                 persist_session_turn_activity,
+                summarize_session_history_activity,
                 run_agent_retrieval_activity,
                 verify_borderline_confidence_activity,
                 execute_agent_mcp_activity,

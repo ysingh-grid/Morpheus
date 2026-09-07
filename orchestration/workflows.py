@@ -25,6 +25,7 @@ with workflow.unsafe.imports_passed_through():
         persist_session_turn_activity,
         run_agent_graph_activity,
         run_agent_retrieval_activity,
+        summarize_session_history_activity,
         verify_borderline_confidence_activity,
     )
 
@@ -118,6 +119,7 @@ class AgentWorkflow:
         try:
             session_context = await self._activity(load_history_activity, [user_id, session_id], 15, 2)
             state["history"] = session_context.get("messages", [])
+            state["conversation_summary"] = session_context.get("conversation_summary", "")
             state["document_ids"] = session_context.get("document_ids", [])
             state["attached_documents"] = session_context.get("attached_documents", [])
         except ActivityError:
@@ -303,6 +305,17 @@ class AgentWorkflow:
             self.execution_history.append("session_persistence_failed")
         else:
             self.execution_history.append("session_persisted")
+        if len(state["messages"]) >= 6:
+            workflow.start_activity(
+                summarize_session_history_activity,
+                args=[user_id, session_id, state["messages"]],
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=1), maximum_attempts=2
+                ),
+                cancellation_type=workflow.ActivityCancellationType.ABANDON,
+            )
+            self.execution_history.append("session_history_summarization_started")
         self._start_fact_extraction(user_id, query, state.get("final_answer", ""))
         self.execution_history.append("workflow_completed")
         self.final_answer = state.get("final_answer", "")

@@ -340,8 +340,23 @@ def load_history_node(state: AgentState) -> AgentState:
     """Inject history previously loaded by a dedicated Temporal activity."""
     if state.get("history_injected"):
         return {}
+    conversation_summary = str(state.get("conversation_summary", "")).strip()
+    summary_message = (
+        [
+            {
+                "role": "system",
+                "content": f"Conversation summary for planning:\n{conversation_summary}",
+            }
+        ]
+        if conversation_summary
+        else []
+    )
     return {
-        "messages": [*state.get("history", []), *state.get("messages", [])],
+        "messages": [
+            *summary_message,
+            *state.get("history", []),
+            *state.get("messages", [])[-6:],
+        ],
         "history_injected": True,
     }
 

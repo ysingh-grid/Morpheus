@@ -87,6 +87,7 @@ class SessionContext(BaseModel):
     """Compact conversational memory and uploaded-document scope for one chat."""
 
     messages: list[dict[str, str]] = Field(default_factory=list)
+    conversation_summary: str = ""
     document_ids: list[str] = Field(default_factory=list)
     attached_documents: list[dict[str, str]] = Field(default_factory=list)
 
@@ -378,10 +379,9 @@ def _history_for_user(user_id: str, session_id: str) -> SessionContext:
         }
         for fact in facts
     ]
-    if session and session["conversation_summary"]:
-        history.append({"role": "system", "content": session["conversation_summary"]})
     return SessionContext(
         messages=history,
+        conversation_summary=(str(session["conversation_summary"]) if session else ""),
         document_ids=document_ids,
         attached_documents=attached_documents,
     )
@@ -441,6 +441,64 @@ def persist_session_turn_activity(
         "User session summary upserted",
         extra={"user_id": user_id, "session_id": session_id},
     )
+
+
+@activity.defn
+def summarize_session_history_activity(
+    user_id: str,
+    session_id: str,
+    messages: list[dict[str, Any]],
+) -> str:
+    """Compress prior turns into durable planning context without delaying the chat reply."""
+    if not user_id.strip() or not session_id.strip():
+        raise _non_retryable("user_id and session_id must not be empty.")
+    conversation = [
+        {
+            "role": str(message.get("role", "user")),
+            "content": str(message.get("content", ""))[:4_000],
+        }
+        for message in messages
+        if isinstance(message, dict) and str(message.get("content", "")).strip()
+    ]
+    completion = llm_client.chat.completions.create(
+        model=DEFAULT_MODEL,
+        temperature=0.0,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "Summarize this conversation for a future assistant in at most 180 words. "
+                    "Include only: the active user topic and named entities; decisions already "
+                    "made; answers or constraints established in prior turns. Do not add facts, "
+                    "instructions, or commentary."
+                ),
+            },
+            {"role": "user", "content": json.dumps(conversation, ensure_ascii=False)},
+        ],
+    )
+    summary = str(completion.choices[0].message.content or "").strip()[:2_000]
+    if not summary:
+        raise ValueError("Gemini returned an empty session summary.")
+    psycopg = _psycopg()
+    with psycopg.connect(_database_url()) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE user_sessions
+                SET conversation_summary = %s, updated_at = NOW()
+                WHERE user_id = %s AND session_id = %s
+                """,
+                (summary, user_id, session_id),
+            )
+    logger.info(
+        "Compressed session history persisted",
+        extra={
+            "user_id": user_id,
+            "session_id": session_id,
+            "message_count": len(conversation),
+        },
+    )
+    return summary
 
 
 def _compact_evidence(evidence: dict[str, Any]) -> dict[str, Any]:

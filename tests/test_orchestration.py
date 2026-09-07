@@ -9,7 +9,7 @@ from pathlib import Path
 from threading import Event, Thread
 from types import SimpleNamespace
 from typing import Any, Callable
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from temporalio import activity
@@ -30,10 +30,12 @@ from orchestration.activities import (
     persist_session_turn_activity,
     run_agent_graph_activity,
     run_agent_retrieval_activity,
+    summarize_session_history_activity,
     verify_borderline_confidence_activity,
 )
 import orchestration.activities as workflow_activities
 from orchestration.workflows import AgentWorkflow, DocumentIngestionWorkflow
+from agent.nodes import load_history_node
 from retrieval.pg_engine import (
     _database_url,
     _psycopg,
@@ -42,6 +44,87 @@ from retrieval.pg_engine import (
 )
 
 CALLS: Counter[str] = Counter()
+
+
+def test_summarize_session_history_persists_constrained_gemini_summary() -> None:
+    """The async activity stores only a concise, planning-safe conversation summary."""
+    cursor = MagicMock()
+    connection = MagicMock()
+    connection.cursor.return_value.__enter__.return_value = cursor
+    psycopg = MagicMock()
+    psycopg.connect.return_value.__enter__.return_value = connection
+    completion = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    content=(
+                        "Topic: IFC financial statements. Entity: IFC. "
+                        "Established answer: net income figures are requested by fiscal year."
+                    )
+                )
+            )
+        ]
+    )
+    messages = [
+        {"role": "user", "content": "Compare IFC net income for 2024 and 2023."},
+        {"role": "assistant", "content": "I will use the annual report."},
+    ]
+
+    with (
+        patch("orchestration.activities._psycopg", return_value=psycopg),
+        patch.object(
+            workflow_activities.llm_client.chat.completions,
+            "create",
+            return_value=completion,
+        ) as create,
+    ):
+        summary = summarize_session_history_activity("user-1", "session-1", messages)
+
+    assert summary.startswith("Topic: IFC financial statements.")
+    assert len(summary.split()) <= 180
+    prompt = create.call_args.kwargs["messages"][0]["content"]
+    assert "active user topic and named entities" in prompt
+    assert "decisions already made" in prompt
+    assert "Do not add facts" in prompt
+    statement, params = cursor.execute.call_args.args
+    assert "UPDATE user_sessions" in statement
+    assert "conversation_summary = %s" in statement
+    assert params == (summary, "user-1", "session-1")
+
+
+def test_load_history_node_injects_summary_and_prunes_raw_turns() -> None:
+    """Planning receives the durable summary plus only the most recent raw chat turns."""
+    raw_messages = [
+        {"role": "user" if index % 2 == 0 else "assistant", "content": f"turn {index}"}
+        for index in range(8)
+    ]
+
+    result = load_history_node(
+        {
+            "messages": raw_messages,
+            "history": [{"role": "system", "content": "Known user fact: IFC."}],
+            "conversation_summary": "Topic: IFC net income. Constraint: use page citations.",
+            "history_injected": False,
+        }
+    )
+
+    assert result["history_injected"] is True
+    assert result["messages"][0] == {
+        "role": "system",
+        "content": (
+            "Conversation summary for planning:\n"
+            "Topic: IFC net income. Constraint: use page citations."
+        ),
+    }
+    assert result["messages"][1]["content"] == "Known user fact: IFC."
+    assert [message["content"] for message in result["messages"][2:]] == [
+        "turn 2",
+        "turn 3",
+        "turn 4",
+        "turn 5",
+        "turn 6",
+        "turn 7",
+    ]
 
 
 def test_compact_evidence_accepts_retrieval_table_chunk_identifier() -> None:
@@ -223,6 +306,17 @@ async def _persist_session_slow(
     await asyncio.sleep(0.2)
 
 
+@activity.defn(name="summarize_session_history_activity")
+def _summarize_session_history(
+    _user_id: str,
+    _session_id: str,
+    _messages: list[dict[str, Any]],
+) -> str:
+    """Provide a non-blocking stand-in for the Gemini history compressor."""
+    CALLS["session_summary"] += 1
+    return "Active topic: deterministic workflow testing."
+
+
 def _next_action(state: dict[str, Any]) -> dict[str, Any]:
     """Model the agent's persisted plan without invoking Gemini in workflow tests."""
     result = dict(state)
@@ -376,6 +470,7 @@ async def _run_fake_workflow(
     query: str,
     choices: tuple[str, ...] = (),
     mcp_activity: Callable[..., Any] = _mcp,
+    messages: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     """Run the workflow with isolated activity doubles and optional HITL signals."""
     CALLS.clear()
@@ -389,6 +484,7 @@ async def _run_fake_workflow(
         _answer,
         _direct_answer,
         _persist_session,
+        _summarize_session_history,
         _record_user_facts,
     ]
     async with await WorkflowEnvironment.start_time_skipping() as environment:
@@ -402,7 +498,7 @@ async def _run_fake_workflow(
             ):
                 handle = await environment.client.start_workflow(
                     AgentWorkflow.run,
-                    args=[query, "integration-test-user"],
+                    args=[query, "integration-test-user", None, messages],
                     id=f"resilience-{uuid4()}",
                     task_queue=task_queue,
                 )
@@ -745,6 +841,26 @@ def test_direct_conversation_uses_no_retrieval_or_web_tool() -> None:
     assert result["sources_used"] == ["agent"]
     assert CALLS["retrieval"] == 0
     assert CALLS["mcp"] == 0
+
+
+def test_multi_turn_workflow_starts_summary_without_delaying_final_response() -> None:
+    """Six or more turns schedule durable compression after the chat response is ready."""
+    messages = [
+        {
+            "role": "user" if index % 2 == 0 else "assistant",
+            "content": f"conversation turn {index}",
+        }
+        for index in range(6)
+    ]
+
+    _, result = asyncio.run(
+        _run_fake_workflow("direct conversation", messages=messages)
+    )
+
+    assert result["status"] == "completed"
+    assert result["final_answer"] == "Conversational answer"
+    assert "session_persisted" in result["execution_history"]
+    assert "session_history_summarization_started" in result["execution_history"]
 
 
 async def _observe_terminal_state_during_persistence() -> dict[str, Any]:
