@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Event, Thread
 from types import SimpleNamespace
 from typing import Any, Callable
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 from temporalio import activity
@@ -24,6 +26,7 @@ from orchestration.activities import (
     _document_evidence_pages_by_name,
     _page_grounded_child_text,
     _source_citations_are_valid,
+    execute_tool_activity,
     generate_direct_answer_activity,
     generate_answer_activity,
     load_history_activity,
@@ -36,6 +39,7 @@ from orchestration.activities import (
 import orchestration.activities as workflow_activities
 from orchestration.workflows import AgentWorkflow, DocumentIngestionWorkflow
 from agent.nodes import load_history_node
+from orchestration.mcp_client import resolve_mcp_tool
 from retrieval.pg_engine import (
     _database_url,
     _psycopg,
@@ -44,6 +48,77 @@ from retrieval.pg_engine import (
 )
 
 CALLS: Counter[str] = Counter()
+
+
+def test_calculator_is_a_registered_secondary_mcp_tool() -> None:
+    """A separately configured calculator server resolves through the common registry."""
+    with patch.dict(
+        os.environ,
+        {
+            "CALCULATOR_MCP_SERVER_COMMAND": "calculator-mcp",
+            "CALCULATOR_MCP_SERVER_ARGS": "--stdio",
+            "CALCULATOR_MCP_TIMEOUT_SECONDS": "12",
+        },
+        clear=False,
+    ):
+        calculator = resolve_mcp_tool("calculator")
+
+    assert calculator["command"] == "calculator-mcp"
+    assert calculator["args"] == ["--stdio"]
+    assert calculator["spec"]["timeout_seconds"] == 12
+    assert calculator["spec"]["parameters"]["required"] == ["expression"]
+
+
+def test_execute_tool_activity_persists_only_a_compact_calculator_reference() -> None:
+    """A registry-selected secondary MCP tool stores raw output outside workflow state."""
+    cursor = MagicMock()
+    connection = MagicMock()
+    connection.cursor.return_value.__enter__.return_value = cursor
+    psycopg = MagicMock()
+    psycopg.connect.return_value.__enter__.return_value = connection
+    tool = {
+        "spec": {
+            "name": "calculator",
+            "description": "Evaluate a mathematical expression.",
+            "parameters": {
+                "type": "object",
+                "properties": {"expression": {"type": "string"}},
+                "required": ["expression"],
+                "additionalProperties": False,
+            },
+            "timeout_seconds": 10,
+        },
+        "command": "calculator-mcp",
+        "args": ["--stdio"],
+        "env": {"CALCULATOR_TOKEN": "local-token"},
+    }
+
+    with (
+        patch("orchestration.activities._psycopg", return_value=psycopg),
+        patch("orchestration.activities.resolve_mcp_tool", return_value=tool),
+        patch(
+            "orchestration.activities.call_mcp_tool",
+            new=AsyncMock(return_value={"content": [{"text": "4"}]}),
+        ) as call,
+    ):
+        reference = asyncio.run(
+            execute_tool_activity("session-1", "calculator", {"expression": "2 + 2"})
+        )
+
+    assert reference["tool_name"] == "calculator"
+    assert reference["tool_result_id"]
+    call.assert_awaited_once_with(
+        "calculator-mcp",
+        ["--stdio"],
+        "calculator",
+        {"expression": "2 + 2"},
+        server_env={"CALCULATOR_TOKEN": "local-token"},
+        timeout_seconds=10,
+    )
+    statement, parameters = cursor.execute.call_args.args
+    assert "INSERT INTO agent_tool_results" in statement
+    assert parameters[1:3] == ("session-1", "calculator")
+    assert json.loads(parameters[3]) == {"content": [{"text": "4"}]}
 
 
 def test_summarize_session_history_persists_constrained_gemini_summary() -> None:
@@ -326,7 +401,11 @@ def _next_action(state: dict[str, Any]) -> dict[str, Any]:
             intent = "conversation"
             document_only = False
         elif result["query"] == "ambiguous with web":
-            tool_sequence = ["hybrid_search", "mcp_search"]
+            tool_sequence = ["hybrid_search", "tavily_search"]
+            intent = "document_and_web"
+            document_only = False
+        elif result["query"] == "calculator":
+            tool_sequence = ["calculator"]
             intent = "document_and_web"
             document_only = False
         elif result["query"] == "ambiguous requires approval":
@@ -340,6 +419,11 @@ def _next_action(state: dict[str, Any]) -> dict[str, Any]:
         result["agent_plan"] = {
             "intent": intent,
             "tool_sequence": tool_sequence,
+            "tool_arguments": (
+                {"calculator": {"expression": "2 + 2"}}
+                if result["query"] == "calculator"
+                else {}
+            ),
             "document_only": document_only,
             "clarification_question": "Please clarify your document question.",
             "reason": "Deterministic workflow test plan.",
@@ -355,11 +439,17 @@ def _next_action(state: dict[str, Any]) -> dict[str, Any]:
         remaining = [
             tool for tool in plan["tool_sequence"] if tool not in completed_tools
         ]
-        result["next_action"] = remaining[0] if remaining else "ask_clarification"
+        result["next_action"] = (
+            "hybrid_search"
+            if remaining and remaining[0] == "hybrid_search"
+            else "mcp_search" if remaining else "ask_clarification"
+        )
     elif remaining := [
         tool for tool in plan["tool_sequence"] if tool not in completed_tools
     ]:
-        result["next_action"] = remaining[0]
+        result["next_action"] = (
+            "hybrid_search" if remaining[0] == "hybrid_search" else "mcp_search"
+        )
     elif (
         plan["document_only"]
         and result.get("retrieval_response", {}).get("status") == "not_found"
@@ -427,20 +517,24 @@ def _verify(
     return query == "borderline sufficient"
 
 
-@activity.defn(name="execute_agent_mcp_activity")
-async def _mcp(_session_id: str, _query: str) -> dict[str, str]:
+@activity.defn(name="execute_tool_activity")
+async def _mcp(
+    _session_id: str, tool_name: str, _arguments: dict[str, Any]
+) -> dict[str, str]:
     """Return a compact persisted-MCP reference."""
     CALLS["mcp"] += 1
-    return {"tool_result_id": "tool-1", "tool_name": "tavily_search"}
+    return {"tool_result_id": "tool-1", "tool_name": tool_name}
 
 
-@activity.defn(name="execute_agent_mcp_activity")
-async def _flaky_mcp(_session_id: str, _query: str) -> dict[str, str]:
+@activity.defn(name="execute_tool_activity")
+async def _flaky_mcp(
+    _session_id: str, tool_name: str, _arguments: dict[str, Any]
+) -> dict[str, str]:
     """Fail once to prove only the MCP activity, not retrieval, is retried."""
     CALLS["mcp"] += 1
     if CALLS["mcp"] == 1:
         raise ApplicationError("temporary MCP outage", type="McpToolError")
-    return {"tool_result_id": "tool-1", "tool_name": "tavily_search"}
+    return {"tool_result_id": "tool-1", "tool_name": tool_name}
 
 
 @activity.defn(name="generate_answer_activity")
@@ -799,6 +893,16 @@ def test_combined_plan_stores_only_mcp_reference_in_workflow_response() -> None:
         "tool_result_id": "tool-1",
         "tool_name": "tavily_search",
     }
+
+
+def test_registry_selected_calculator_runs_through_generic_tool_activity() -> None:
+    """The workflow executes a non-Tavily MCP tool and keeps only its persisted ID."""
+    _, result = asyncio.run(_run_fake_workflow("calculator"))
+
+    assert result["status"] == "completed"
+    assert result["evidence"] == [{"tool_result_id": "tool-1", "tool_name": "calculator"}]
+    assert result["sources_used"] == ["mcp_tools"]
+    assert CALLS["mcp"] == 1
 
 
 def test_workflow_suspends_and_resumes_on_clarification_signal() -> None:

@@ -6,16 +6,25 @@ from typing import Any, Literal, TypedDict
 
 from pydantic import BaseModel, Field
 
-AgentTool = Literal["hybrid_search", "mcp_search"]
 AgentIntent = Literal["conversation", "document", "web", "document_and_web", "clarify"]
 DocumentLookupMode = Literal["semantic", "overview", "table", "figure", "page"]
+
+
+class ToolSpec(TypedDict):
+    """Public planning contract for one registry-backed MCP tool."""
+
+    name: str
+    description: str
+    parameters: dict[str, Any]
+    timeout_seconds: int
 
 
 class AgentPlan(BaseModel):
     """Structured Gemini decision for one conversational agent turn."""
 
     intent: AgentIntent
-    tool_sequence: list[AgentTool] = Field(default_factory=list, max_length=2)
+    tool_sequence: list[str] = Field(default_factory=list, max_length=5)
+    tool_arguments: dict[str, dict[str, Any]] = Field(default_factory=dict)
     document_only: bool = False
     document_lookup: DocumentLookupMode = "semantic"
     document_query: str = Field(default="", max_length=1000)
@@ -39,7 +48,7 @@ class AgentState(TypedDict, total=False):
     mcp_results: list[dict[str, Any]]
     retrieval_response: dict[str, Any]
     agent_plan: dict[str, Any]
-    completed_tools: list[AgentTool]
+    completed_tools: list[str]
     tool_errors: dict[str, str]
     clarification_needed: bool
     context_sufficient: bool

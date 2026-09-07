@@ -8,7 +8,6 @@ import logging
 import os
 import platform
 import re
-import shlex
 import time
 from pathlib import Path
 from threading import Lock
@@ -40,7 +39,7 @@ from retrieval.pg_engine import (
     hybrid_search_and_join,
 )
 
-from orchestration.mcp_client import call_mcp_tool
+from orchestration.mcp_client import call_mcp_tool, resolve_mcp_tool
 
 logger = logging.getLogger(__name__)
 INGESTION_STAGING_DIRECTORY = Path(
@@ -618,22 +617,52 @@ def verify_borderline_confidence_activity(
     return assessment.is_context_sufficient
 
 
+def _validate_tool_arguments(
+    tool_name: str, parameters: dict[str, Any], arguments: dict[str, Any]
+) -> None:
+    """Reject malformed arguments before starting an external MCP server process."""
+    if parameters.get("type") != "object":
+        raise ValueError(f"MCP tool '{tool_name}' must declare object parameters.")
+    required = parameters.get("required", [])
+    if not isinstance(required, list) or not all(isinstance(item, str) for item in required):
+        raise ValueError(f"MCP tool '{tool_name}' has invalid required parameters.")
+    missing = [name for name in required if name not in arguments]
+    if missing:
+        raise ValueError(f"MCP tool '{tool_name}' is missing required arguments: {missing}.")
+    properties = parameters.get("properties", {})
+    if parameters.get("additionalProperties") is False and isinstance(properties, dict):
+        unexpected = sorted(set(arguments) - set(properties))
+        if unexpected:
+            raise ValueError(f"MCP tool '{tool_name}' received unknown arguments: {unexpected}.")
+
+
 @activity.defn
-async def execute_mcp_tool_activity(
-    tool_name: str, args: dict[str, Any]
-) -> dict[str, Any]:
-    """Call the configured MCP server from an activity worker."""
-    server_command = os.getenv("MCP_SERVER_COMMAND")
-    server_args = shlex.split(os.getenv("MCP_SERVER_ARGS", ""))
-    if not server_command or not server_args:
+async def execute_tool_activity(
+    session_id: str, tool_name: str, arguments: dict[str, Any]
+) -> dict[str, str]:
+    """Execute a registry-backed MCP tool and return only its persisted result reference."""
+    if not session_id.strip() or not tool_name.strip():
+        raise _non_retryable("session_id and tool_name must not be empty.")
+    if not isinstance(arguments, dict):
+        raise _non_retryable("MCP tool arguments must be a JSON object.")
+    try:
+        tool = resolve_mcp_tool(tool_name)
+        _validate_tool_arguments(tool_name, tool["spec"]["parameters"], arguments)
+    except ValueError as error:
         raise ApplicationError(
-            "MCP_SERVER_COMMAND and MCP_SERVER_ARGS must configure a server exposing "
-            f"the requested '{tool_name}' tool.",
+            f"MCP tool '{tool_name}' is not configured correctly: {error}",
             type="McpConfigurationError",
             non_retryable=True,
-        )
+        ) from error
     try:
-        result = await call_mcp_tool(server_command, server_args, tool_name, args)
+        result = await call_mcp_tool(
+            tool["command"],
+            tool["args"],
+            tool_name,
+            arguments,
+            server_env=tool["env"],
+            timeout_seconds=tool["spec"]["timeout_seconds"],
+        )
     except (OSError, ValueError, asyncio.TimeoutError) as error:
         raise ApplicationError(
             f"MCP tool '{tool_name}' failed: {error}", type="McpToolError"
@@ -643,16 +672,6 @@ async def execute_mcp_tool_activity(
             f"MCP tool '{tool_name}' returned an error response.",
             type="McpToolResponseError",
         )
-    logger.info("Temporal MCP tool completed", extra={"tool_name": tool_name})
-    return result
-
-
-@activity.defn
-async def execute_agent_mcp_activity(session_id: str, query: str) -> dict[str, str]:
-    """Store a Tavily payload outside workflow state and return its reference."""
-    if not session_id.strip() or not query.strip():
-        raise _non_retryable("session_id and query must not be empty.")
-    result = await execute_mcp_tool_activity("tavily_search", {"query": query})
     result_id = str(uuid4())
     psycopg = _psycopg()
     with psycopg.connect(_database_url()) as connection:
@@ -662,13 +681,13 @@ async def execute_agent_mcp_activity(session_id: str, query: str) -> dict[str, s
                 INSERT INTO agent_tool_results (id, session_id, tool_name, result)
                 VALUES (%s, %s, %s, %s::jsonb)
                 """,
-                (result_id, session_id, "tavily_search", json.dumps(result)),
+                (result_id, session_id, tool_name, json.dumps(result)),
             )
     logger.info(
-        "Agent MCP result stored",
-        extra={"session_id": session_id, "tool_name": "tavily_search"},
+        "Registry-backed MCP result stored",
+        extra={"session_id": session_id, "tool_name": tool_name},
     )
-    return {"tool_result_id": result_id, "tool_name": "tavily_search"}
+    return {"tool_result_id": result_id, "tool_name": tool_name}
 
 
 def _load_evidence_by_references(

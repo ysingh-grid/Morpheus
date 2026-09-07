@@ -9,8 +9,9 @@ from typing import Any
 
 from openai import APIError
 
-from agent.state import AgentPlan, AgentState, AgentTool
+from agent.state import AgentPlan, AgentState
 from core.config import DEFAULT_MODEL, llm_client
+from orchestration.mcp_client import default_web_search_tool, registered_tool_specs
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +180,7 @@ def _fallback_plan(state: AgentState) -> AgentPlan:
     wants_web = _explicit_web_search_requested(query)
     explicit_document_request = _explicit_document_request(query)
     wants_documents = has_documents and explicit_document_request
+    web_search_tool = default_web_search_tool()
     if explicit_document_request and not has_documents and not wants_web:
         return AgentPlan(
             intent="clarify",
@@ -187,20 +189,22 @@ def _fallback_plan(state: AgentState) -> AgentPlan:
             clarification_question="Please attach the document you want me to use in this chat.",
             reason="The request refers to a document, but this chat has no attached documents.",
         )
-    if wants_web and wants_documents:
+    if wants_web and wants_documents and web_search_tool:
         return AgentPlan(
             intent="document_and_web",
-            tool_sequence=["hybrid_search", "mcp_search"],
+            tool_sequence=["hybrid_search", web_search_tool],
             document_only=False,
             document_query=query,
             web_query=query,
+            tool_arguments={web_search_tool: {"query": query}},
             reason="Explicit document and web request detected by fallback routing.",
         )
-    if wants_web:
+    if wants_web and web_search_tool:
         return AgentPlan(
             intent="web",
-            tool_sequence=["mcp_search"],
+            tool_sequence=[web_search_tool],
             web_query=query,
+            tool_arguments={web_search_tool: {"query": query}},
             reason="Explicit web request detected by fallback routing.",
         )
     if wants_documents:
@@ -228,6 +232,7 @@ def _create_agent_plan(state: AgentState) -> AgentPlan:
         )
     document_ids = state.get("document_ids", [])
     recent_messages = state.get("messages", [])[-12:]
+    mcp_tools = registered_tool_specs()
     completion = llm_client.beta.chat.completions.parse(
         model=DEFAULT_MODEL,
         response_format=AgentPlan,
@@ -240,7 +245,8 @@ def _create_agent_plan(state: AgentState) -> AgentPlan:
                     "ordinary conversation, writing, reasoning, or stable general knowledge. "
                     "Use hybrid_search when the user asks about an uploaded document or when "
                     "available document context is relevant to the ongoing conversation. Use "
-                    "mcp_search for explicit web requests or information that must be current. "
+                    "an MCP tool from available_mcp_tools for explicit web requests or information "
+                    "that must be current. "
                     "Use both tools when the user asks to compare, verify, or enrich uploaded "
                     "content with web information. Set document_only=true only when the user "
                     "explicitly constrains the answer to an uploaded or attached document. "
@@ -255,7 +261,9 @@ def _create_agent_plan(state: AgentState) -> AgentPlan:
                     "removes conversational routing phrases such as 'according to the uploaded "
                     "document' while preserving names, dates, numbers, and the information need. "
                     "For short document questions and follow-ups such as 'more detail' or 'the "
-                    "topic above', resolve the subject from recent_conversation in document_query."
+                    "topic above', resolve the subject from recent_conversation in document_query. "
+                    "For each selected MCP tool, provide tool_arguments keyed by tool name and "
+                    "conforming to that tool's JSON Schema."
                 ),
             },
             {
@@ -265,6 +273,7 @@ def _create_agent_plan(state: AgentState) -> AgentPlan:
                         "current_query": state.get("query", ""),
                         "available_document_ids": document_ids,
                         "available_documents": state.get("attached_documents", []),
+                        "available_mcp_tools": mcp_tools,
                         "recent_conversation": recent_messages,
                     },
                     ensure_ascii=False,
@@ -275,13 +284,15 @@ def _create_agent_plan(state: AgentState) -> AgentPlan:
     plan = completion.choices[0].message.parsed
     if plan is None:
         raise ValueError("Gemini did not return a structured agent plan.")
-    unique_tools: list[AgentTool] = []
+    registered_tool_names = {tool["name"] for tool in mcp_tools}
+    allowed_tools = {"hybrid_search", *registered_tool_names}
+    unique_tools: list[str] = []
     for tool in plan.tool_sequence:
-        if tool not in unique_tools:
+        if tool in allowed_tools and tool not in unique_tools:
             unique_tools.append(tool)
     if not document_ids:
         unique_tools = [tool for tool in unique_tools if tool != "hybrid_search"]
-        if _explicit_document_request(state.get("query", "")) and "mcp_search" not in unique_tools:
+        if _explicit_document_request(state.get("query", "")) and not unique_tools:
             plan.intent = "clarify"
             plan.document_only = True
             plan.clarification_question = (
@@ -290,12 +301,24 @@ def _create_agent_plan(state: AgentState) -> AgentPlan:
     plan.tool_sequence = unique_tools
     if "hybrid_search" in unique_tools and not plan.document_query.strip():
         plan.document_query = state.get("query", "")
-    if "mcp_search" in unique_tools and not plan.web_query.strip():
+    plan.tool_arguments = {
+        tool_name: arguments
+        for tool_name, arguments in plan.tool_arguments.items()
+        if tool_name in registered_tool_names and isinstance(arguments, dict)
+    }
+    for tool_name in unique_tools:
+        if tool_name == "hybrid_search" or tool_name in plan.tool_arguments:
+            continue
+        if tool_name == default_web_search_tool():
+            plan.tool_arguments[tool_name] = {
+                "query": plan.web_query.strip() or state.get("query", "")
+            }
+    if default_web_search_tool() in unique_tools and not plan.web_query.strip():
         plan.web_query = state.get("query", "")
     if (
         _explicit_document_request(state.get("query", ""))
         and "hybrid_search" in unique_tools
-        and "mcp_search" not in unique_tools
+        and not any(tool in registered_tool_names for tool in unique_tools)
     ):
         plan.document_only = True
     if plan.intent == "clarify" and not plan.clarification_question:
@@ -309,10 +332,11 @@ def _planned_action(state: AgentState, plan: dict[str, Any]) -> str:
         return "ask_clarification"
 
     completed_tools = set(state.get("completed_tools", []))
+    registered_tool_names = {tool["name"] for tool in registered_tool_specs()}
     tool_sequence = [
         tool
         for tool in plan.get("tool_sequence", [])
-        if tool in {"hybrid_search", "mcp_search"}
+        if tool == "hybrid_search" or tool in registered_tool_names
     ]
 
     if state.get("verification_pending"):
@@ -321,14 +345,19 @@ def _planned_action(state: AgentState, plan: dict[str, Any]) -> str:
     if state.get("clarification_needed"):
         for tool in tool_sequence:
             if tool not in completed_tools:
-                return tool
-        if state.get("user_choice") == "approve_web_search" and "mcp_search" not in completed_tools:
+                return "hybrid_search" if tool == "hybrid_search" else "mcp_search"
+        web_search_tool = default_web_search_tool()
+        if (
+            state.get("user_choice") == "approve_web_search"
+            and web_search_tool
+            and web_search_tool not in completed_tools
+        ):
             return "mcp_search"
         return "ask_clarification"
 
     for tool in tool_sequence:
         if tool not in completed_tools:
-            return tool
+            return "hybrid_search" if tool == "hybrid_search" else "mcp_search"
 
     has_tool_evidence = bool(state.get("retrieved_evidence") or state.get("mcp_results"))
     if plan.get("document_only") and state.get("retrieval_response", {}).get("status") == "not_found":

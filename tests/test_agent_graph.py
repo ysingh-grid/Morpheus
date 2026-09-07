@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+from unittest.mock import patch
+
 import pytest
 
 from agent.graph import compile_agent_graph
@@ -91,6 +94,29 @@ def test_fallback_plan_requests_attachment_for_missing_document_context() -> Non
     assert plan.intent == "clarify"
     assert plan.tool_sequence == []
     assert "attach" in plan.clarification_question.casefold()
+
+
+def test_gemini_selected_registered_calculator_is_preserved_with_arguments() -> None:
+    """Planner accepts registry-backed tools instead of a fixed MCP tool literal."""
+    selected_plan = AgentPlan(
+        intent="web",
+        tool_sequence=["calculator"],
+        tool_arguments={"calculator": {"expression": "2 + 2"}},
+        reason="A calculator tool can evaluate the requested expression.",
+    )
+    completion = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(parsed=selected_plan))]
+    )
+
+    with patch(
+        "agent.nodes.llm_client.beta.chat.completions.parse", return_value=completion
+    ):
+        plan = _create_agent_plan(
+            {"query": "Calculate 2 + 2", "document_ids": [], "messages": []}
+        )
+
+    assert plan.tool_sequence == ["calculator"]
+    assert plan.tool_arguments == {"calculator": {"expression": "2 + 2"}}
 
 
 def test_document_overview_query_uses_attached_document_profile() -> None:
@@ -261,7 +287,7 @@ def test_planner_node_routes_explicit_web_request_to_mcp_after_local_retrieval()
         "completed_tools": [],
         "agent_plan": {
             "intent": "web",
-            "tool_sequence": ["mcp_search"],
+            "tool_sequence": ["tavily_search"],
             "document_only": False,
             "clarification_question": "",
             "reason": "The user explicitly requested web search.",
@@ -270,7 +296,7 @@ def test_planner_node_routes_explicit_web_request_to_mcp_after_local_retrieval()
 
     assert planner_node(state) == {"next_action": "mcp_search"}
     state["mcp_results"] = [{"tool_result_id": "tool-1", "tool_name": "tavily_search"}]
-    state["completed_tools"] = ["mcp_search"]
+    state["completed_tools"] = ["tavily_search"]
     assert planner_node(state) == {"next_action": "generate_answer"}
 
 
@@ -280,7 +306,7 @@ def test_planner_node_runs_document_and_web_tools_in_sequence() -> None:
         "query": "Compare this report with current web information.",
         "agent_plan": {
             "intent": "document_and_web",
-            "tool_sequence": ["hybrid_search", "mcp_search"],
+            "tool_sequence": ["hybrid_search", "tavily_search"],
             "document_only": False,
             "clarification_question": "",
             "reason": "Both sources are required.",

@@ -11,10 +11,12 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError
 
 with workflow.unsafe.imports_passed_through():
+    from orchestration.mcp_client import default_web_search_tool
+
     from orchestration.activities import (
         attach_existing_document_activity,
         commit_document_bundle_activity,
-        execute_agent_mcp_activity,
+        execute_tool_activity,
         extract_user_facts_activity,
         generate_embeddings_activity,
         generate_direct_answer_activity,
@@ -186,22 +188,36 @@ class AgentWorkflow:
 
             if action == "mcp_search":
                 self.status = "web_searching"
-                self.execution_history.append("mcp_web_search_started")
-                web_query = str(state.get("agent_plan", {}).get("web_query") or query)
+                plan = dict(state.get("agent_plan", {}))
+                tool_name = next(
+                    (
+                        name
+                        for name in plan.get("tool_sequence", [])
+                        if name != "hybrid_search" and name not in state["completed_tools"]
+                    ),
+                    "",
+                )
+                arguments = dict(plan.get("tool_arguments", {}).get(tool_name, {}))
+                if tool_name == default_web_search_tool() and not arguments:
+                    arguments = {"query": str(plan.get("web_query") or query)}
+                if not tool_name:
+                    state["tool_errors"]["mcp"] = "No registered MCP tool was selected."
+                    continue
+                self.execution_history.append(f"mcp_tool_started:{tool_name}")
                 try:
                     result_reference = await self._activity(
-                        execute_agent_mcp_activity,
-                        [session_id, web_query],
+                        execute_tool_activity,
+                        [session_id, tool_name, arguments],
                         45,
                         3,
                     )
                 except ActivityError:
-                    self.execution_history.append("mcp_web_search_failed")
-                    state["tool_errors"]["mcp_search"] = "Web search was unavailable."
-                    state["completed_tools"].append("mcp_search")
+                    self.execution_history.append(f"mcp_tool_failed:{tool_name}")
+                    state["tool_errors"][tool_name] = "The selected MCP tool was unavailable."
+                    state["completed_tools"].append(tool_name)
                     continue
                 state["mcp_results"] = [*state["mcp_results"], result_reference]
-                state["completed_tools"].append("mcp_search")
+                state["completed_tools"].append(tool_name)
                 state["clarification_needed"] = False
                 continue
 
@@ -275,12 +291,15 @@ class AgentWorkflow:
                 state["user_choice"] = self.user_choice
                 state["clarification_needed"] = False
                 state["completed_tools"] = [
-                    tool for tool in state["completed_tools"] if tool != "mcp_search"
+                    tool
+                    for tool in state["completed_tools"]
+                    if tool != default_web_search_tool()
                 ]
                 plan = dict(state.get("agent_plan", {}))
                 planned_tools = list(plan.get("tool_sequence", []))
-                if "mcp_search" not in planned_tools:
-                    planned_tools.append("mcp_search")
+                web_search_tool = default_web_search_tool()
+                if web_search_tool and web_search_tool not in planned_tools:
+                    planned_tools.append(web_search_tool)
                 plan["tool_sequence"] = planned_tools
                 if plan.get("intent") == "clarify":
                     plan["intent"] = "web_search"
@@ -338,7 +357,15 @@ class AgentWorkflow:
         if state.get("retrieval_response"):
             sources_used.append("pgvector")
         if state.get("mcp_results"):
-            sources_used.append("mcp_web_search")
+            mcp_tool_names = {
+                str(reference.get("tool_name", ""))
+                for reference in state["mcp_results"]
+            }
+            sources_used.append(
+                "mcp_web_search"
+                if mcp_tool_names == {default_web_search_tool()}
+                else "mcp_tools"
+            )
         if not sources_used:
             sources_used.append("agent")
         evidence = (
