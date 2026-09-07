@@ -232,6 +232,10 @@ def _next_action(state: dict[str, Any]) -> dict[str, Any]:
             tool_sequence = ["hybrid_search", "mcp_search"]
             intent = "document_and_web"
             document_only = False
+        elif result["query"] == "ambiguous requires approval":
+            tool_sequence = ["hybrid_search"]
+            intent = "document"
+            document_only = False
         else:
             tool_sequence = ["hybrid_search"]
             intent = "document"
@@ -294,7 +298,12 @@ def _retrieval(
             "confidence": {},
             "evidence": [],
         }
-    if query in {"ambiguous", "ambiguous with web", "borderline sufficient"}:
+    if query in {
+        "ambiguous",
+        "ambiguous with web",
+        "ambiguous requires approval",
+        "borderline sufficient",
+    }:
         return {
             "status": "clarification_needed",
             "message": "Ambiguous evidence.",
@@ -530,6 +539,37 @@ def test_combined_plan_stores_only_mcp_reference_in_workflow_response() -> None:
         "tool_result_id": "tool-1",
         "tool_name": "tavily_search",
     }
+
+
+def test_workflow_suspends_and_resumes_on_clarification_signal() -> None:
+    """Approval resumes the paused workflow and permits its planned MCP search."""
+    paused_state, result = asyncio.run(
+        _run_fake_workflow(
+            "ambiguous requires approval", choices=("approve_web_search",)
+        )
+    )
+
+    assert paused_state is not None
+    assert paused_state["status"] == "awaiting_clarification"
+    assert result["status"] == "completed"
+    assert result["sources_used"] == ["pgvector", "mcp_web_search"]
+    assert "workflow_paused_for_clarification" in result["execution_history"]
+    assert "clarification_approved_web_search" in result["execution_history"]
+    assert CALLS["mcp"] == 1
+
+
+def test_workflow_cancellation_ends_paused_clarification_without_web_search() -> None:
+    """Cancellation resolves the durable wait without executing the MCP tool."""
+    paused_state, result = asyncio.run(
+        _run_fake_workflow("ambiguous requires approval", choices=("cancel",))
+    )
+
+    assert paused_state is not None
+    assert paused_state["status"] == "awaiting_clarification"
+    assert result["status"] == "cancelled"
+    assert result["final_answer"] == "Clarification/search was not approved."
+    assert "clarification_cancelled" in result["execution_history"]
+    assert CALLS["mcp"] == 0
 
 
 def test_direct_conversation_uses_no_retrieval_or_web_tool() -> None:

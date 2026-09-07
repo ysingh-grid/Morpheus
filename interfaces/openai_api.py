@@ -14,6 +14,7 @@ from uuid import uuid4
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from temporalio.client import Client
+from temporalio.service import RPCError
 
 from ingestion.doc_processor import document_id_for_file, process_document
 from retrieval.pg_engine import (
@@ -688,14 +689,14 @@ async def get_workflow_status(workflow_id: str) -> WorkflowStateResponse:
 async def submit_clarification(
     workflow_id: str, request: ClarificationSignalRequest
 ) -> WorkflowStateResponse:
-    """Deliver one validated human approval or cancellation signal to Temporal."""
+    """Deliver one decision only while its Temporal workflow is awaiting clarification."""
     try:
         client = await Client.connect(TEMPORAL_ADDRESS)
         handle = client.get_workflow_handle(workflow_id)
-        await handle.signal("user_clarification_signal", request.choice)
-    except Exception as error:
+        state = await handle.query("get_workflow_state")
+    except RPCError as error:
         logger.exception(
-            "Temporal clarification signal failed", extra={"workflow_id": workflow_id}
+            "Temporal clarification state query failed", extra={"workflow_id": workflow_id}
         )
         raise HTTPException(
             status_code=404,
@@ -707,4 +708,37 @@ async def submit_clarification(
             },
         ) from error
 
-    return await _workflow_state(workflow_id)
+    if state.get("status") != "awaiting_clarification":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": {
+                    "message": "Workflow is not awaiting clarification.",
+                    "type": "workflow_not_waiting",
+                }
+            },
+        )
+
+    try:
+        await handle.signal("user_clarification_signal", request.choice)
+    except RPCError as error:
+        logger.exception(
+            "Temporal clarification signal was rejected", extra={"workflow_id": workflow_id}
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": {
+                    "message": "Workflow no longer accepts clarification.",
+                    "type": "workflow_not_waiting",
+                }
+            },
+        ) from error
+
+    return WorkflowStateResponse(
+        workflow_id=workflow_id,
+        status="awaiting_clarification",
+        user_choice=request.choice,
+        final_answer=str(state.get("final_answer", "")),
+        execution_history=list(state.get("execution_history", [])),
+    )

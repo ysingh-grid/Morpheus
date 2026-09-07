@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 from typing import Any
 
@@ -239,19 +240,47 @@ class AgentWorkflow:
 
             if action == "ask_clarification":
                 plan = state.get("agent_plan", {})
-                if (
-                    plan.get("document_only")
-                    and state.get("clarification_needed")
-                ):
+                if plan.get("document_only") and state.get("clarification_needed"):
                     self._publish_terminal_state(state, "not_found")
                     self.execution_history.append("retrieval_not_found")
-                elif state["iteration_count"] >= MAX_AGENT_TURNS:
-                    self._publish_terminal_state(state, "turn_limit_reached")
-                    self.execution_history.append("agent_turn_limit_reached")
-                else:
-                    self._publish_terminal_state(state, "completed")
-                    self.execution_history.append("clarification_requested")
-                break
+                    break
+
+                self.status = "awaiting_clarification"
+                self.execution_history.append("workflow_paused_for_clarification")
+                try:
+                    await workflow.wait_condition(
+                        lambda: self.user_choice is not None,
+                        timeout=timedelta(hours=24),
+                        timeout_summary="clarification_expiry",
+                    )
+                except asyncio.TimeoutError:
+                    state["final_answer"] = "Clarification/search was not approved."
+                    self._publish_terminal_state(state, "timed_out")
+                    self.execution_history.append("clarification_timed_out")
+                    break
+
+                if self.user_choice != "approve_web_search":
+                    state["final_answer"] = "Clarification/search was not approved."
+                    self._publish_terminal_state(state, "cancelled")
+                    self.execution_history.append("clarification_cancelled")
+                    break
+
+                state["user_choice"] = self.user_choice
+                state["clarification_needed"] = False
+                state["completed_tools"] = [
+                    tool for tool in state["completed_tools"] if tool != "mcp_search"
+                ]
+                plan = dict(state.get("agent_plan", {}))
+                planned_tools = list(plan.get("tool_sequence", []))
+                if "mcp_search" not in planned_tools:
+                    planned_tools.append("mcp_search")
+                plan["tool_sequence"] = planned_tools
+                if plan.get("intent") == "clarify":
+                    plan["intent"] = "web_search"
+                state["agent_plan"] = plan
+                self.status = "reasoning"
+                self.execution_history.append("clarification_approved_web_search")
+                continue
 
         else:
             state["final_answer"] = "I could not complete this request safely. Please clarify it."

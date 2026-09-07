@@ -367,9 +367,38 @@ def test_submit_clarification_signals_temporal_workflow() -> None:
 
     assert response.status_code == 202
     assert response.json()["user_choice"] == "approve_web_search"
+    assert response.json()["status"] == "awaiting_clarification"
     handle.signal.assert_awaited_once_with(
         "user_clarification_signal", "approve_web_search"
     )
+
+
+def test_submit_clarification_rejects_non_waiting_workflow_without_signalling() -> None:
+    """A completed workflow must not receive a late approval signal."""
+    handle = MagicMock()
+    handle.query = AsyncMock(
+        return_value={
+            "status": "completed",
+            "user_choice": None,
+            "final_answer": "Done.",
+            "execution_history": ["workflow_completed"],
+        }
+    )
+    handle.signal = AsyncMock()
+    temporal_client = MagicMock()
+    temporal_client.get_workflow_handle.return_value = handle
+
+    with patch(
+        "interfaces.openai_api.Client.connect",
+        new=AsyncMock(return_value=temporal_client),
+    ):
+        response = asyncio.run(
+            _post_clarification("wf-usr_123-sess_456", "approve_web_search")
+        )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["error"]["type"] == "workflow_not_waiting"
+    handle.signal.assert_not_awaited()
 
 
 def test_upload_pdf_processes_and_loads_normalized_bundle(tmp_path: Path) -> None:
