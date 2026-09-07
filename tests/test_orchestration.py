@@ -495,6 +495,113 @@ def test_generate_answer_repairs_missing_page_citation() -> None:
     assert create.call_count == 2
 
 
+def test_extract_facts_prompts_for_document_driven_user_learning() -> None:
+    """Fact extraction prompts for user profile context established from document discussions."""
+    fake_extraction = workflow_activities.UserFactExtraction(
+        facts=[
+            workflow_activities.UserFact(
+                fact_key="primary_organization",
+                fact_value="IFC",
+                category="organization",
+            )
+        ]
+    )
+    completion = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(parsed=fake_extraction))]
+    )
+
+    with patch.object(
+        workflow_activities.llm_client.beta.chat.completions,
+        "parse",
+        return_value=completion,
+    ) as parse:
+        extracted = workflow_activities._extract_facts(
+            "What did my portfolio report say?",
+            "Your IFC portfolio holds $110B in assets.",
+        )
+
+    assert len(extracted.facts) == 1
+    assert extracted.facts[0].fact_key == "primary_organization"
+    prompt = parse.call_args.kwargs["messages"][0]["content"]
+    assert "single-user personal knowledge base" in prompt
+    assert "user-owned document evidence" in prompt
+
+
+def test_extract_document_facts_learns_context_from_ingested_summary() -> None:
+    """Document ingestion extracts user organization and project context from summaries."""
+    fake_extraction = workflow_activities.UserFactExtraction(
+        facts=[
+            workflow_activities.UserFact(
+                fact_key="affiliated_organization",
+                fact_value="IFC",
+                category="organization",
+            )
+        ]
+    )
+    completion = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(parsed=fake_extraction))]
+    )
+
+    with patch.object(
+        workflow_activities.llm_client.beta.chat.completions,
+        "parse",
+        return_value=completion,
+    ):
+        extracted = workflow_activities._extract_document_facts(
+            "ifc-annual-report-2024.pdf",
+            "Financial report of the International Finance Corporation.",
+        )
+
+    assert len(extracted.facts) == 1
+    assert extracted.facts[0].fact_value == "IFC"
+
+
+def test_generate_answer_activity_pins_user_facts_and_personalizes_prompt() -> None:
+    """Answer generation pins user facts outside recent dialogue and instructs personalization."""
+    evidence = [
+        {
+            "document_name": "report.pdf",
+            "page_numbers": [7],
+            "parent_page_numbers": [7],
+            "matched_table_chunks": [],
+            "figures": [],
+            "tables": [],
+        }
+    ]
+    response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    content="The total was 42 for IFC. [Source: report.pdf, p. 7]"
+                )
+            )
+        ]
+    )
+    messages = [
+        {"role": "system", "content": "Known user fact (organization): organization = IFC"},
+        {"role": "user", "content": "What was the total?"},
+    ]
+
+    with (
+        patch("orchestration.activities._load_evidence_by_references", return_value=evidence),
+        patch("orchestration.activities._load_mcp_results", return_value=[]),
+        patch.object(
+            workflow_activities.llm_client.chat.completions,
+            "create",
+            return_value=response,
+        ) as create,
+    ):
+        answer = generate_answer_activity("What was the total?", [{"chunk_id": "c1", "parent_id": "p1"}], [], messages)
+
+    assert "The total was 42" in answer
+    user_payload = create.call_args.kwargs["messages"][1]["content"]
+    assert "User Profile & Known Context:" in user_payload
+    assert "organization = IFC" in user_payload
+    system_prompt = create.call_args.kwargs["messages"][0]["content"]
+    assert "personal knowledge base" in system_prompt
+    assert "known user profile facts and preferences" in system_prompt
+
+
 @activity.defn(name="extract_user_facts_activity")
 def _record_user_facts(_user_id: str, _prompt: str, _response: str) -> bool:
     """Keep workflow tests focused on agent orchestration behavior."""

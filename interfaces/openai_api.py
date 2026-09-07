@@ -39,6 +39,18 @@ UPLOAD_DIRECTORY = Path(os.getenv("MORPHEUS_UPLOAD_DIR", "uploaded_documents"))
 MAX_UPLOAD_FILES = int(os.getenv("MAX_UPLOAD_FILES", "10"))
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
 INGESTION_BATCH_PREFIX = "ingest-batch-"
+SINGLE_USER_ID = os.getenv("MORPHEUS_USER_ID", "usr_local")
+
+
+def _resolve_user_id(requested_user: Any) -> str:
+    """Resolve user identity, mapping empty or generic UI IDs to the single-user default."""
+    if not isinstance(requested_user, str) or not requested_user.strip():
+        return SINGLE_USER_ID
+    cleaned = requested_user.strip()
+    if cleaned in {"usr_openwebui", "usr_default"}:
+        return SINGLE_USER_ID
+    return cleaned
+
 
 app = FastAPI(title="Morpheus OpenAI-Compatible API", version="0.1.0")
 UploadProgressCallback = Callable[[int, str, dict[str, Any]], None]
@@ -492,11 +504,12 @@ async def upload_documents(
         )
 
     saved_uploads = [await _save_uploaded_pdf(upload) for upload in files]
+    resolved_user = _resolve_user_id(user)
     try:
         results = await asyncio.to_thread(
             _process_saved_documents,
             saved_uploads,
-            user,
+            resolved_user,
             chat_id,
         )
     except Exception as error:
@@ -548,6 +561,7 @@ async def start_document_upload_job(
         )
 
     saved_uploads = [await _save_uploaded_pdf(upload) for upload in files]
+    resolved_user = _resolve_user_id(user)
     workflow_ids: list[str] = []
     documents: list[dict[str, str]] = []
     try:
@@ -558,7 +572,7 @@ async def start_document_upload_job(
             try:
                 await client.start_workflow(
                     DocumentIngestionWorkflow.run,
-                    args=[str(saved_path), user, chat_id],
+                    args=[str(saved_path), resolved_user, chat_id],
                     id=workflow_id,
                     task_queue=TASK_QUEUE,
                 )
@@ -568,7 +582,7 @@ async def start_document_upload_job(
                     extra={"workflow_id": workflow_id, "document_id": document_id},
                 )
                 await asyncio.to_thread(
-                    attach_documents_to_session, user, chat_id, [document_id]
+                    attach_documents_to_session, resolved_user, chat_id, [document_id]
                 )
             workflow_ids.append(workflow_id)
             documents.append({"filename": original_filename, "document_id": document_id})
@@ -641,7 +655,7 @@ async def chat_completions(body: dict[str, Any]) -> dict[str, Any]:
         )
     _requested_model = body.get("model", MODEL_ID)
     del _requested_model
-    user_id = str(body.get("user", "usr_local"))
+    user_id = _resolve_user_id(body.get("user"))
     session_id = str(body.get("chat_id") or body.get("id", "sess_default"))
     latest_query, sanitized_messages = _sanitize_messages(messages)
 
@@ -689,7 +703,7 @@ async def start_chat_workflow(body: dict[str, Any]) -> WorkflowStateResponse:
             status_code=422,
             detail={"error": {"message": "messages must be a list."}},
         )
-    user_id = str(body.get("user", "usr_local"))
+    user_id = _resolve_user_id(body.get("user"))
     session_id = str(body.get("chat_id") or body.get("id", "sess_default"))
     latest_query, sanitized_messages = _sanitize_messages(messages)
 

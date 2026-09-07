@@ -53,6 +53,15 @@ def test_workflow_id_is_unique_for_each_chat_turn() -> None:
     assert first != second
 
 
+def test_resolve_user_id_maps_ui_and_empty_users_to_single_user() -> None:
+    """Generic UI identifiers or omitted user IDs resolve to canonical single user."""
+    assert openai_api._resolve_user_id(None) == "usr_local"
+    assert openai_api._resolve_user_id("") == "usr_local"
+    assert openai_api._resolve_user_id("usr_openwebui") == "usr_local"
+    assert openai_api._resolve_user_id("usr_default") == "usr_local"
+    assert openai_api._resolve_user_id("usr_custom") == "usr_custom"
+
+
 async def _post_chat(payload: dict[str, object]) -> httpx.Response:
     """Issue one chat-completions request through the ASGI application."""
     async with _client() as client:

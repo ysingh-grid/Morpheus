@@ -316,6 +316,39 @@ def reindex_chunk_batch_activity(chunks: list[dict[str, str]]) -> str:
     raise RuntimeError("Reindexing exhausted its rate-limit retries.")
 
 
+def _extract_document_facts(document_name: str, summary: str) -> UserFactExtraction:
+    """Extract durable organization, domain, and project context from an ingested document."""
+    if not summary.strip():
+        return UserFactExtraction(facts=[])
+    try:
+        completion = llm_client.beta.chat.completions.parse(
+            model=DEFAULT_MODEL,
+            response_format=UserFactExtraction,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are the document learning engine for a single-user personal knowledge base. "
+                        "The user has ingested a document they own or work with into their personal knowledge base. "
+                        "Extract durable user context from this document summary and title: "
+                        "organization affiliation, active projects, technical domain, or subject area. "
+                        "Assign appropriate categories ('organization', 'project', 'domain', 'subject'). "
+                        "Return at most 3 high-confidence, broad facts (e.g. fact_key='primary_organization', fact_value='IFC', category='organization'). "
+                        "Return an empty facts list if the document is purely generic or does not imply user context."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Document title: {document_name}\nSummary:\n{summary}",
+                },
+            ],
+        )
+        return completion.choices[0].message.parsed or UserFactExtraction(facts=[])
+    except Exception:
+        logger.warning("Document fact extraction failed; continuing ingestion", exc_info=True)
+        return UserFactExtraction(facts=[])
+
+
 @activity.defn
 def commit_document_bundle_activity(
     bundle_reference: str,
@@ -335,6 +368,27 @@ def commit_document_bundle_activity(
         raise _non_retryable("Unable to commit document bundle.") from error
 
     attach_documents_to_session(user_id, session_id, [str(bundle["document"]["document_id"])])
+    doc_name = Path(str(bundle["document"]["source_path"])).name
+    doc_summary = str(bundle["document"].get("summary", ""))
+    extracted = _extract_document_facts(doc_name, doc_summary)
+    if extracted.facts:
+        psycopg = _psycopg()
+        with psycopg.connect(_database_url()) as connection:
+            with connection.cursor() as cursor:
+                cursor.executemany(
+                    """
+                    INSERT INTO user_facts (user_id, fact_key, fact_value, category)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (user_id, fact_key) DO UPDATE
+                    SET fact_value = EXCLUDED.fact_value,
+                        category = EXCLUDED.category,
+                        updated_at = NOW()
+                    """,
+                    [
+                        (user_id, fact.fact_key, fact.fact_value, fact.category)
+                        for fact in extracted.facts
+                    ],
+                )
     Path(bundle_reference).unlink(missing_ok=True)
     Path(embeddings_reference).unlink(missing_ok=True)
     activity.heartbeat({"stage": "document_committed", "stats": stats})
@@ -1027,7 +1081,7 @@ def _source_citations_are_valid(
 
 
 def _extract_facts(prompt: str, response: str) -> UserFactExtraction:
-    """Ask Gemini for only user facts explicitly stated in the exchange."""
+    """Extract durable user profile, preference, project, and domain facts from the exchange."""
     completion = llm_client.beta.chat.completions.parse(
         model=DEFAULT_MODEL,
         response_format=UserFactExtraction,
@@ -1035,9 +1089,16 @@ def _extract_facts(prompt: str, response: str) -> UserFactExtraction:
             {
                 "role": "system",
                 "content": (
-                    "Extract only durable user preferences or user-owned entities explicitly "
-                    "stated in the conversation. Never infer facts from document evidence. "
-                    "Return an empty facts list when there are no such facts."
+                    "You are the personalization and memory learning engine for a single-user personal knowledge base. "
+                    "All documents and conversations in this system belong to this user. "
+                    "Extract durable facts about the user established in this exchange: "
+                    "1. Explicit user preferences (e.g. formatting, style, tone, constraints). "
+                    "2. User-owned profile details revealed in the conversation or user-owned document evidence "
+                    "(e.g. organization, role, current projects, technical stack, research topics, domain expertise). "
+                    "Assign a clear category ('preference', 'identity', 'organization', 'project', 'skill', 'domain'). "
+                    "Return concise, factual key-value pairs (e.g. fact_key='primary_organization', fact_value='IFC', category='organization'). "
+                    "Do not extract transient conversational phrasing or third-party trivia that does not relate to the user. "
+                    "Return an empty facts list when there are no user-relevant facts."
                 ),
             },
             {
@@ -1066,30 +1127,44 @@ def generate_answer_activity(
     mcp_results = _load_mcp_results(mcp_result_references)
     if not evidence and not mcp_results:
         raise _non_retryable("Grounded evidence is required to generate an answer.")
+    user_facts = [
+        str(message.get("content", "")).removeprefix("Known user fact ").strip()
+        for message in messages
+        if isinstance(message, dict)
+        and str(message.get("content", "")).startswith("Known user fact")
+    ]
+    recent_dialogue = [
+        message
+        for message in messages
+        if isinstance(message, dict)
+        and not str(message.get("content", "")).startswith("Known user fact")
+    ][-12:]
     messages_payload = [
         {
             "role": "system",
             "content": (
-                "You are Morpheus, a conversational assistant. Answer the current question "
-                "using the supplied document and web evidence, while respecting relevant "
-                "conversation context. Clearly distinguish uploaded-document facts from web "
-                "facts. Every factual claim derived from uploaded-document evidence must end "
-                "with a visible inline source citation using the exact supplied filename and "
-                "page number, for example [Source: handbook.pdf, p. 12] or "
-                "[Source: handbook.pdf, pp. 12–13]. Do not use HTML tags, Markdown footnotes, "
-                "or numbered [1] citations. Use the narrowest page "
-                "set that supports the claim: table chunk page_numbers for table facts, figure "
-                "bounding-box page_no for figure facts, child page_numbers for child facts, "
-                "and parent_page_numbers only when necessary. Never infer a page number. "
-                "Do not invent citations, facts, or web results. If a source URL is present "
-                "in web evidence, cite it naturally."
+                "You are Morpheus, a conversational assistant for this personal knowledge base. "
+                "Answer the current question using the supplied document and web evidence, while "
+                "respecting relevant conversation context and known user profile facts and preferences. "
+                "Tailor explanations, tone, technical depth, and framing to the user's known profile, "
+                "organization, and preferences where relevant. "
+                "Clearly distinguish uploaded-document facts from web facts. Every factual claim derived "
+                "from uploaded-document evidence must end with a visible inline source citation using the "
+                "exact supplied filename and page number, for example [Source: handbook.pdf, p. 12] or "
+                "[Source: handbook.pdf, pp. 12–13]. Do not use HTML tags, Markdown footnotes, or numbered "
+                "[1] citations. Use the narrowest page set that supports the claim: table chunk page_numbers "
+                "for table facts, figure bounding-box page_no for figure facts, child page_numbers for child "
+                "facts, and parent_page_numbers only when necessary. Never infer a page number. "
+                "Do not invent citations, facts, or web results. If a source URL is present in web evidence, "
+                "cite it naturally."
             ),
         },
         {
             "role": "user",
             "content": (
                 f"Question:\n{query}\n\n"
-                f"Conversation:\n{json.dumps(messages[-12:], ensure_ascii=False)}\n\n"
+                f"User Profile & Known Context:\n{json.dumps(user_facts, ensure_ascii=False) if user_facts else 'None'}\n\n"
+                f"Conversation:\n{json.dumps(recent_dialogue, ensure_ascii=False)}\n\n"
                 f"Grounded document evidence:\n{json.dumps(evidence, ensure_ascii=False)}\n\n"
                 f"Web evidence:\n{json.dumps(mcp_results, ensure_ascii=False)}"
             ),
@@ -1143,28 +1218,41 @@ def generate_direct_answer_activity(
     """Let the central agent answer conversationally without forcing a tool call."""
     if not query.strip():
         raise _non_retryable("Answer query must not be empty.")
+    user_facts = [
+        str(message.get("content", "")).removeprefix("Known user fact ").strip()
+        for message in messages
+        if isinstance(message, dict)
+        and str(message.get("content", "")).startswith("Known user fact")
+    ]
+    recent_dialogue = [
+        message
+        for message in messages
+        if isinstance(message, dict)
+        and not str(message.get("content", "")).startswith("Known user fact")
+    ][-12:]
     completion = llm_client.chat.completions.create(
         model=DEFAULT_MODEL,
         messages=[
             {
                 "role": "system",
                 "content": (
-                    "You are Morpheus, a helpful conversational assistant. Respond naturally "
-                    "using the conversation history. You may reformat, quote, summarize, or "
-                    "calculate from facts and citations already present in a prior assistant "
-                    "answer, but must preserve its source citations and add no new document facts. "
+                    "You are Morpheus, a helpful conversational assistant for this personal knowledge base. "
+                    "Respond naturally using the conversation history, user profile facts, and preferences. "
+                    "Tailor tone, depth, and framing to the user's known profile and preferences where relevant. "
+                    "You may reformat, quote, summarize, or calculate from facts and citations already present "
+                    "in a prior assistant answer, but must preserve its source citations and add no new document facts. "
                     "No new evidence-bearing tool result is available for this turn, so never "
-                    "claim that you newly inspected an uploaded "
-                    "document or searched the web. If a requested tool failed, state that "
-                    "limitation instead of fabricating its result. If the user asks for missing "
-                    "details, ask one focused clarification."
+                    "claim that you newly inspected an uploaded document or searched the web. "
+                    "If a requested tool failed, state that limitation instead of fabricating its result. "
+                    "If the user asks for missing details, ask one focused clarification."
                 ),
             },
             {
                 "role": "user",
                 "content": (
                     f"Current question:\n{query}\n\n"
-                    f"Recent conversation:\n{json.dumps(messages[-12:], ensure_ascii=False)}\n\n"
+                    f"User Profile & Known Context:\n{json.dumps(user_facts, ensure_ascii=False) if user_facts else 'None'}\n\n"
+                    f"Recent conversation:\n{json.dumps(recent_dialogue, ensure_ascii=False)}\n\n"
                     f"Tool failures:\n{json.dumps(tool_errors, ensure_ascii=False)}"
                 ),
             },
