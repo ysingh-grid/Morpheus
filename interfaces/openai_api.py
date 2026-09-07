@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
+import json
 import logging
 import os
 import time
@@ -13,6 +16,7 @@ from uuid import uuid4
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from temporalio.client import Client
+from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError
 
 from ingestion.doc_processor import document_id_for_file, process_document
@@ -34,6 +38,7 @@ WORKFLOW_TYPE = "AgentWorkflow"
 UPLOAD_DIRECTORY = Path(os.getenv("MORPHEUS_UPLOAD_DIR", "uploaded_documents"))
 MAX_UPLOAD_FILES = int(os.getenv("MAX_UPLOAD_FILES", "10"))
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
+INGESTION_BATCH_PREFIX = "ingest-batch-"
 
 app = FastAPI(title="Morpheus OpenAI-Compatible API", version="0.1.0")
 UploadProgressCallback = Callable[[int, str, dict[str, Any]], None]
@@ -235,6 +240,70 @@ async def _save_uploaded_pdf(upload: UploadFile) -> tuple[str, Path]:
             },
         ) from error
     return original_filename, saved_path
+
+
+def _ingestion_batch_id(workflow_ids: list[str]) -> str:
+    """Encode child ingestion workflow IDs in one durable, stateless batch identifier."""
+    encoded = base64.urlsafe_b64encode(
+        json.dumps(workflow_ids, separators=(",", ":")).encode("utf-8")
+    ).decode("ascii")
+    return f"{INGESTION_BATCH_PREFIX}{encoded}"
+
+
+def _batch_workflow_ids(job_id: str) -> list[str] | None:
+    """Decode a gateway-created batch identifier without relying on process memory."""
+    if not job_id.startswith(INGESTION_BATCH_PREFIX):
+        return None
+    try:
+        encoded = job_id.removeprefix(INGESTION_BATCH_PREFIX).encode("ascii")
+        values = json.loads(base64.urlsafe_b64decode(encoded).decode("utf-8"))
+    except (binascii.Error, UnicodeDecodeError, ValueError, json.JSONDecodeError) as error:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": {"message": "Upload job was not found.", "type": "not_found"}},
+        ) from error
+    if not isinstance(values, list) or not values or not all(
+        isinstance(value, str) and value for value in values
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail={"error": {"message": "Upload job was not found.", "type": "not_found"}},
+        )
+    return values
+
+
+def _aggregate_ingestion_progress(
+    job_id: str, child_states: list[dict[str, Any]]
+) -> DocumentUploadJobResponse:
+    """Derive a batch status directly from durable child workflow query results."""
+    statuses = [str(state.get("status", "queued")) for state in child_states]
+    if any(status == "failed" for status in statuses):
+        status = "failed"
+    elif statuses and all(status == "completed" for status in statuses):
+        status = "completed"
+    elif any(status == "processing" for status in statuses):
+        status = "processing"
+    else:
+        status = "queued"
+    documents = [
+        document
+        for state in child_states
+        for document in state.get("documents", [])
+        if isinstance(document, dict)
+    ]
+    errors = [str(state["error"]) for state in child_states if state.get("error")]
+    return DocumentUploadJobResponse(
+        job_id=job_id,
+        status=status,
+        progress=round(
+            sum(int(state.get("progress", 0)) for state in child_states)
+            / max(len(child_states), 1)
+        ),
+        stage="completed" if status == "completed" else "processing_batch",
+        details={"workflow_ids": len(child_states), "statuses": statuses},
+        documents=documents,
+        error="; ".join(errors) if errors else None,
+    )
 
 
 def _process_saved_documents(
@@ -478,29 +547,33 @@ async def start_document_upload_job(
             },
         )
 
-    if len(files) != 1:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": {
-                    "message": "Start one durable ingestion job per PDF upload.",
-                    "type": "one_file_per_job",
-                }
-            },
-        )
-    original_filename, saved_path = await _save_uploaded_pdf(files[0])
-    document_id = document_id_for_file(saved_path)
-    workflow_id = f"ingest-{document_id}"
+    saved_uploads = [await _save_uploaded_pdf(upload) for upload in files]
+    workflow_ids: list[str] = []
+    documents: list[dict[str, str]] = []
     try:
         client = await Client.connect(TEMPORAL_ADDRESS)
-        await client.start_workflow(
-            DocumentIngestionWorkflow.run,
-            args=[str(saved_path), user, chat_id],
-            id=workflow_id,
-            task_queue=TASK_QUEUE,
-        )
+        for original_filename, saved_path in saved_uploads:
+            document_id = document_id_for_file(saved_path)
+            workflow_id = f"ingest-{document_id}"
+            try:
+                await client.start_workflow(
+                    DocumentIngestionWorkflow.run,
+                    args=[str(saved_path), user, chat_id],
+                    id=workflow_id,
+                    task_queue=TASK_QUEUE,
+                )
+            except WorkflowAlreadyStartedError:
+                logger.info(
+                    "Reusing in-flight document ingestion workflow",
+                    extra={"workflow_id": workflow_id, "document_id": document_id},
+                )
+                await asyncio.to_thread(
+                    attach_documents_to_session, user, chat_id, [document_id]
+                )
+            workflow_ids.append(workflow_id)
+            documents.append({"filename": original_filename, "document_id": document_id})
     except Exception as error:
-        logger.exception("Temporal ingestion workflow start failed", extra={"workflow_id": workflow_id})
+        logger.exception("Temporal ingestion workflow start failed")
         raise HTTPException(
             status_code=503,
             detail={
@@ -510,12 +583,13 @@ async def start_document_upload_job(
                 }
             },
         ) from error
+    job_id = workflow_ids[0] if len(workflow_ids) == 1 else _ingestion_batch_id(workflow_ids)
     return DocumentUploadJobResponse(
-        job_id=workflow_id,
+        job_id=job_id,
         status="queued",
         progress=0,
         stage="queued",
-        details={"filename": original_filename, "document_id": document_id},
+        details={"documents": documents, "workflow_ids": workflow_ids},
     )
 
 
@@ -527,8 +601,13 @@ async def get_document_upload_job(job_id: str) -> DocumentUploadJobResponse:
     """Query the durable Temporal workflow state for one PDF upload job."""
     try:
         client = await Client.connect(TEMPORAL_ADDRESS)
-        handle = client.get_workflow_handle(job_id)
-        progress = await handle.query("get_ingestion_progress")
+        child_workflow_ids = _batch_workflow_ids(job_id) or [job_id]
+        progress_states = await asyncio.gather(
+            *[
+                client.get_workflow_handle(workflow_id).query("get_ingestion_progress")
+                for workflow_id in child_workflow_ids
+            ]
+        )
     except Exception as error:
         logger.exception("Temporal ingestion progress query failed", extra={"job_id": job_id})
         raise HTTPException(
@@ -537,7 +616,9 @@ async def get_document_upload_job(job_id: str) -> DocumentUploadJobResponse:
                 "error": {"message": "Upload job was not found.", "type": "not_found"}
             },
         ) from error
-    return DocumentUploadJobResponse(job_id=job_id, **progress)
+    if len(progress_states) == 1:
+        return DocumentUploadJobResponse(job_id=job_id, **progress_states[0])
+    return _aggregate_ingestion_progress(job_id, list(progress_states))
 
 
 @app.get("/v1/models")

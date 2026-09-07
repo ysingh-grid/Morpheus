@@ -6,10 +6,12 @@ import asyncio
 import json
 import logging
 import os
+import platform
 import re
 import shlex
 import time
 from pathlib import Path
+from threading import Lock
 from typing import Any
 from uuid import uuid4
 
@@ -41,6 +43,10 @@ from retrieval.pg_engine import (
 from orchestration.mcp_client import call_mcp_tool
 
 logger = logging.getLogger(__name__)
+INGESTION_STAGING_DIRECTORY = Path(
+    os.getenv("MORPHEUS_INGESTION_STAGING_DIR", "uploaded_documents/.ingestion-staging")
+)
+_DOCLING_OCR_LOCK = Lock()
 SOURCE_CITATION_PATTERN = re.compile(
     r"\[Source:\s*(?P<document>.+?),\s*pp?\.\s*(?P<pages>[0-9,\s\-–]+)\]",
     re.IGNORECASE,
@@ -88,6 +94,30 @@ class SessionContext(BaseModel):
 def _non_retryable(message: str) -> ApplicationError:
     """Return a Temporal error for inputs that a retry cannot repair."""
     return ApplicationError(message, type="InvalidInput", non_retryable=True)
+
+
+def _write_staging_json(payload: dict[str, Any], suffix: str) -> str:
+    """Atomically persist a durable activity payload outside Temporal history."""
+    INGESTION_STAGING_DIRECTORY.mkdir(parents=True, exist_ok=True)
+    final_path = INGESTION_STAGING_DIRECTORY / f"{uuid4().hex}{suffix}.json"
+    temporary_path = final_path.with_suffix(".tmp")
+    temporary_path.write_text(json.dumps(payload), encoding="utf-8")
+    temporary_path.replace(final_path)
+    return str(final_path)
+
+
+def _read_staging_json(reference: str) -> dict[str, Any]:
+    """Load one workflow-owned durable staging payload by its local reference."""
+    path = Path(reference)
+    if not path.is_file():
+        raise _non_retryable(f"Ingestion staging payload is unavailable: {reference}")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise _non_retryable(f"Ingestion staging payload is invalid: {reference}") from error
+    if not isinstance(payload, dict):
+        raise _non_retryable(f"Ingestion staging payload is invalid: {reference}")
+    return payload
 
 
 def _is_openwebui_utility_prompt(prompt: str) -> bool:
@@ -154,19 +184,35 @@ def parse_docling_layout_activity(file_path: str) -> dict[str, Any]:
     def heartbeat_progress(percent: int, stage: str, details: dict[str, Any]) -> None:
         activity.heartbeat({"stage": stage, "progress": percent, "details": details})
 
+    uses_exclusive_ocr_lock = platform.system() == "Darwin"
+    if uses_exclusive_ocr_lock:
+        while not _DOCLING_OCR_LOCK.acquire(timeout=30):
+            activity.heartbeat({"stage": "waiting_for_exclusive_ocr"})
     try:
-        bundle = process_document(str(path), progress_callback=heartbeat_progress)
-    except (OSError, RuntimeError, ValueError) as error:
-        raise _non_retryable(f"Unable to parse document layout: {file_path}") from error
-    return dict(bundle)
+        try:
+            bundle = process_document(str(path), progress_callback=heartbeat_progress)
+        except (OSError, RuntimeError, ValueError) as error:
+            raise _non_retryable(f"Unable to parse document layout: {file_path}") from error
+    finally:
+        if uses_exclusive_ocr_lock:
+            _DOCLING_OCR_LOCK.release()
+    bundle_reference = _write_staging_json(dict(bundle), ".bundle")
+    return {
+        "bundle_reference": bundle_reference,
+        "document_id": str(bundle["document"]["document_id"]),
+        "filename": path.name,
+        "children": len(bundle["children"]),
+    }
 
 
 @activity.defn
-def generate_embeddings_activity(chunks: list[dict[str, Any]]) -> list[list[float]]:
-    """Generate child embeddings and back off exponentially when Gemini rate-limits."""
-    texts = [
-        _child_retrieval_text(str(chunk["text_with_context"])) for chunk in chunks
-    ]
+def generate_embeddings_activity(bundle_reference: str) -> dict[str, Any]:
+    """Generate staged child embeddings and back off exponentially on Gemini limits."""
+    bundle = _read_staging_json(bundle_reference)
+    chunks = bundle.get("children")
+    if not isinstance(chunks, list):
+        raise _non_retryable("Parsed document bundle has no child chunks.")
+    texts = [_child_retrieval_text(str(chunk["text_with_context"])) for chunk in chunks]
     embeddings: list[list[float]] = []
     for offset in range(0, len(texts), EMBEDDING_BATCH_SIZE):
         batch = texts[offset : offset + EMBEDDING_BATCH_SIZE]
@@ -202,14 +248,21 @@ def generate_embeddings_activity(chunks: list[dict[str, Any]]) -> list[list[floa
         raise RuntimeError("Gemini returned a different number of embeddings than chunks.")
     if any(len(embedding) != EMBEDDING_DIMENSION for embedding in embeddings):
         raise RuntimeError("Gemini returned embeddings with an unexpected dimension.")
-    return embeddings
+    embeddings_reference = _write_staging_json({"embeddings": embeddings}, ".embeddings")
+    return {"embeddings_reference": embeddings_reference, "children": len(chunks)}
 
 
 @activity.defn
-def commit_document_bundle_activity(bundle: dict[str, Any]) -> dict[str, Any]:
+def commit_document_bundle_activity(
+    bundle_reference: str,
+    embeddings_reference: str,
+    user_id: str,
+    session_id: str,
+) -> dict[str, Any]:
     """Atomically insert a parsed bundle, its embeddings, and its chat attachment."""
-    ingestion_context = bundle.pop("_ingestion_context", {})
-    embeddings = bundle.pop("_embeddings", None)
+    bundle = _read_staging_json(bundle_reference)
+    embedding_payload = _read_staging_json(embeddings_reference)
+    embeddings = embedding_payload.get("embeddings")
     if not isinstance(embeddings, list):
         raise _non_retryable("Document bundle is missing generated embeddings.")
     try:
@@ -217,12 +270,9 @@ def commit_document_bundle_activity(bundle: dict[str, Any]) -> dict[str, Any]:
     except (OSError, RuntimeError, ValueError) as error:
         raise _non_retryable("Unable to commit document bundle.") from error
 
-    user_id = ingestion_context.get("user_id")
-    session_id = ingestion_context.get("session_id")
-    if isinstance(user_id, str) and isinstance(session_id, str):
-        attach_documents_to_session(
-            user_id, session_id, [str(bundle["document"]["document_id"])]
-        )
+    attach_documents_to_session(user_id, session_id, [str(bundle["document"]["document_id"])])
+    Path(bundle_reference).unlink(missing_ok=True)
+    Path(embeddings_reference).unlink(missing_ok=True)
     activity.heartbeat({"stage": "document_committed", "stats": stats})
     return {
         "document_id": str(bundle["document"]["document_id"]),

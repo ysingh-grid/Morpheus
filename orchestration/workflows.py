@@ -427,22 +427,33 @@ class DocumentIngestionWorkflow:
                 return self.get_ingestion_progress()
 
             self._set_progress(stage="parsing_document_layout", progress=10)
-            bundle = await self._activity(
+            parsed_document = await self._activity(
                 parse_docling_layout_activity, [file_path], 1_800, 3, 120
             )
             self._set_progress(
                 stage="generating_embeddings",
                 progress=65,
-                details={"children": len(bundle.get("children", []))},
+                details={"children": int(parsed_document["children"])},
             )
-            embeddings = await self._activity(
-                generate_embeddings_activity, [bundle["children"]], 600, 5, 60
+            generated_embeddings = await self._activity(
+                generate_embeddings_activity,
+                [str(parsed_document["bundle_reference"])],
+                600,
+                5,
+                60,
             )
-            bundle["_embeddings"] = embeddings
-            bundle["_ingestion_context"] = {"user_id": user_id, "session_id": session_id}
             self._set_progress(stage="committing_document_bundle", progress=90)
             document = await self._activity(
-                commit_document_bundle_activity, [bundle], 180, 3, 60
+                commit_document_bundle_activity,
+                [
+                    str(parsed_document["bundle_reference"]),
+                    str(generated_embeddings["embeddings_reference"]),
+                    user_id,
+                    session_id,
+                ],
+                180,
+                3,
+                60,
             )
         except ActivityError:
             self.status = "failed"

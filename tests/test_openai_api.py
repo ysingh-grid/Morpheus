@@ -10,8 +10,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 from fastapi import HTTPException
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from interfaces.openai_api import _sanitize_messages, _workflow_id, app
+import interfaces.openai_api as openai_api
 from security.guardrails import GuardrailResult
 
 
@@ -92,6 +94,17 @@ async def _start_upload_job(filename: str, contents: bytes) -> httpx.Response:
         return await client.post(
             "/v1/documents/upload-jobs",
             files={"files": (filename, contents, "application/pdf")},
+        )
+
+
+async def _start_multi_upload_job(
+    files: list[tuple[str, bytes]],
+) -> httpx.Response:
+    """Start one durable batch from multiple multipart PDF uploads."""
+    async with _client() as client:
+        return await client.post(
+            "/v1/documents/upload-jobs",
+            files=[("files", (filename, contents, "application/pdf")) for filename, contents in files],
         )
 
 
@@ -464,7 +477,10 @@ def test_upload_job_starts_durable_temporal_ingestion_workflow(tmp_path: Path) -
         "status": "queued",
         "progress": 0,
         "stage": "queued",
-        "details": {"filename": "job.pdf", "document_id": "sha256-job"},
+        "details": {
+            "documents": [{"filename": "job.pdf", "document_id": "sha256-job"}],
+            "workflow_ids": ["ingest-sha256-job"],
+        },
         "documents": [],
         "error": None,
     }
@@ -501,6 +517,104 @@ def test_upload_job_status_reads_temporal_workflow_query() -> None:
     assert response.json()["progress"] == 65
     assert response.json()["stage"] == "generating_embeddings"
     handle.query.assert_awaited_once_with("get_ingestion_progress")
+
+
+def test_upload_job_accepts_multiple_pdfs_as_one_durable_batch(tmp_path: Path) -> None:
+    """Open WebUI multi-file uploads start one child workflow per document."""
+    temporal_client = MagicMock()
+    temporal_client.start_workflow = AsyncMock()
+
+    with (
+        patch("interfaces.openai_api.UPLOAD_DIRECTORY", tmp_path),
+        patch(
+            "interfaces.openai_api.document_id_for_file",
+            side_effect=["sha256-first", "sha256-second"],
+        ),
+        patch(
+            "interfaces.openai_api.Client.connect",
+            new=AsyncMock(return_value=temporal_client),
+        ),
+    ):
+        response = asyncio.run(
+            _start_multi_upload_job(
+                [("first.pdf", b"%PDF-1.7 first"), ("second.pdf", b"%PDF-1.7 second")]
+            )
+        )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["job_id"].startswith("ingest-batch-")
+    assert body["details"]["workflow_ids"] == [
+        "ingest-sha256-first",
+        "ingest-sha256-second",
+    ]
+    assert temporal_client.start_workflow.await_count == 2
+
+
+def test_upload_job_batch_status_aggregates_child_workflow_progress() -> None:
+    """A batch identifier remains pollable without any gateway-side job dictionary."""
+    first_handle = MagicMock()
+    first_handle.query = AsyncMock(
+        return_value={
+            "status": "completed",
+            "progress": 100,
+            "stage": "completed",
+            "details": {},
+            "documents": [],
+            "error": None,
+        }
+    )
+    second_handle = MagicMock()
+    second_handle.query = AsyncMock(
+        return_value={
+            "status": "processing",
+            "progress": 40,
+            "stage": "parsing_document_layout",
+            "details": {},
+            "documents": [],
+            "error": None,
+        }
+    )
+    temporal_client = MagicMock()
+    temporal_client.get_workflow_handle.side_effect = [first_handle, second_handle]
+    batch_id = openai_api._ingestion_batch_id(["ingest-first", "ingest-second"])
+
+    with patch(
+        "interfaces.openai_api.Client.connect",
+        new=AsyncMock(return_value=temporal_client),
+    ):
+        response = asyncio.run(_get_upload_job(batch_id))
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "processing"
+    assert response.json()["progress"] == 70
+    assert response.json()["details"]["workflow_ids"] == 2
+
+
+def test_upload_job_reuses_existing_ingestion_workflow_after_duplicate_start(
+    tmp_path: Path,
+) -> None:
+    """An in-flight duplicate upload remains pollable rather than returning a false 503."""
+    temporal_client = MagicMock()
+    temporal_client.start_workflow = AsyncMock(
+        side_effect=WorkflowAlreadyStartedError("ingest-sha256-job", "DocumentIngestionWorkflow")
+    )
+
+    with (
+        patch("interfaces.openai_api.UPLOAD_DIRECTORY", tmp_path),
+        patch("interfaces.openai_api.document_id_for_file", return_value="sha256-job"),
+        patch("interfaces.openai_api.attach_documents_to_session") as attach,
+        patch(
+            "interfaces.openai_api.Client.connect",
+            new=AsyncMock(return_value=temporal_client),
+        ),
+    ):
+        response = asyncio.run(_start_upload_job("job.pdf", b"%PDF-1.7 job"))
+
+    assert response.status_code == 202
+    assert response.json()["job_id"] == "ingest-sha256-job"
+    assert response.json()["status"] == "queued"
+    attach.assert_called_once_with("usr_local", "sess_default", ["sha256-job"])
 
 
 def test_upload_rejects_non_pdf_before_preprocessing(tmp_path: Path) -> None:

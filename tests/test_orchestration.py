@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from threading import Event, Thread
 from types import SimpleNamespace
 from typing import Any, Callable
 from unittest.mock import patch
@@ -30,6 +32,7 @@ from orchestration.activities import (
     run_agent_retrieval_activity,
     verify_borderline_confidence_activity,
 )
+import orchestration.activities as workflow_activities
 from orchestration.workflows import AgentWorkflow, DocumentIngestionWorkflow
 from retrieval.pg_engine import (
     _database_url,
@@ -443,44 +446,45 @@ def _document_parse_after_worker_restart(_file_path: str) -> dict[str, Any]:
     if CALLS["document_parse"] == 1:
         raise ApplicationError("worker restarted during Docling parsing", type="WorkerLost")
     return {
-        "document": {
-            "document_id": "sha256-ingestion-test",
-            "source_path": "ingestion-test.pdf",
-        },
-        "parents": [{"parent_id": "parent-1"}],
-        "children": [
-            {"chunk_id": "child-1", "text_with_context": "First child"},
-            {"chunk_id": "child-2", "text_with_context": "Second child"},
-        ],
+        "bundle_reference": "file:///staging/ingestion-test.bundle.json",
+        "document_id": "sha256-ingestion-test",
+        "filename": "ingestion-test.pdf",
+        "children": 2,
     }
 
 
 @activity.defn(name="generate_embeddings_activity")
-def _document_embeddings(chunks: list[dict[str, Any]]) -> list[list[float]]:
-    """Return correctly shaped test vectors without calling Gemini."""
+def _document_embeddings(bundle_reference: str) -> dict[str, Any]:
+    """Return a compact embedding reference without putting vectors in history."""
     CALLS["document_embeddings"] += 1
-    return [[0.0] * 1536 for _ in chunks]
+    assert bundle_reference == "file:///staging/ingestion-test.bundle.json"
+    return {
+        "embeddings_reference": "file:///staging/ingestion-test.embeddings.json",
+        "children": 2,
+    }
 
 
 @activity.defn(name="commit_document_bundle_activity")
-def _commit_document_bundle_once(bundle: dict[str, Any]) -> dict[str, Any]:
+def _commit_document_bundle_once(
+    bundle_reference: str,
+    embeddings_reference: str,
+    user_id: str,
+    session_id: str,
+) -> dict[str, Any]:
     """Model the idempotent atomic commit boundary used after a parse retry."""
     CALLS["document_commit"] += 1
-    committed_parent_ids = {
-        parent["parent_id"] for parent in bundle["parents"]
-    }
-    committed_child_ids = {child["chunk_id"] for child in bundle["children"]}
-    assert len(committed_parent_ids) == len(bundle["parents"])
-    assert len(committed_child_ids) == len(bundle["children"])
+    assert bundle_reference == "file:///staging/ingestion-test.bundle.json"
+    assert embeddings_reference == "file:///staging/ingestion-test.embeddings.json"
+    assert (user_id, session_id) == ("user", "session")
     return {
         "filename": "ingestion-test.pdf",
         "document_id": "sha256-ingestion-test",
         "status": "ingested",
-        "parents": len(committed_parent_ids),
+        "parents": 1,
         "figures": 0,
         "tables": 0,
         "table_chunks": 0,
-        "children": len(committed_child_ids),
+        "children": 2,
     }
 
 
@@ -532,6 +536,55 @@ def test_document_ingestion_workflow_retries_parse_without_duplicate_records() -
     ]
     assert CALLS["document_parse"] == 2
     assert CALLS["document_commit"] == 1
+
+
+def test_parse_docling_layout_activity_serializes_macos_ocr(tmp_path: Path) -> None:
+    """Apple Vision parsing never overlaps across concurrent worker activity threads."""
+    source = tmp_path / "document.pdf"
+    source.write_bytes(b"%PDF-1.7 test")
+    first_parse_started = Event()
+    release_first_parse = Event()
+    second_parse_started = Event()
+    parse_calls = 0
+
+    def parse(_path: str, progress_callback: Callable[..., Any]) -> dict[str, Any]:
+        nonlocal parse_calls
+        parse_calls += 1
+        if parse_calls == 1:
+            first_parse_started.set()
+            assert release_first_parse.wait(timeout=2)
+        else:
+            second_parse_started.set()
+        progress_callback(50, "exporting_page_layout", {"page": 1})
+        return {
+            "document": {"document_id": f"document-{parse_calls}"},
+            "children": [],
+        }
+
+    with (
+        patch("orchestration.activities.platform.system", return_value="Darwin"),
+        patch("orchestration.activities.process_document", side_effect=parse),
+        patch("orchestration.activities.activity.heartbeat"),
+        patch("orchestration.activities.INGESTION_STAGING_DIRECTORY", tmp_path),
+    ):
+        first = Thread(
+            target=workflow_activities.parse_docling_layout_activity,
+            args=(str(source),),
+        )
+        second = Thread(
+            target=workflow_activities.parse_docling_layout_activity,
+            args=(str(source),),
+        )
+        first.start()
+        assert first_parse_started.wait(timeout=2)
+        second.start()
+        assert not second_parse_started.wait(timeout=0.1)
+        release_first_parse.set()
+        first.join(timeout=2)
+        second.join(timeout=2)
+
+    assert parse_calls == 2
+    assert second_parse_started.is_set()
 
 
 async def _run_real_workflow(query: str) -> dict[str, Any]:
