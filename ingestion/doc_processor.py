@@ -495,10 +495,12 @@ def _page_markdown_sections(
     document: object,
     figures: list[Figure],
     tables: list[TableRecord],
+    progress_callback: ProgressCallback | None = None,
 ) -> list[tuple[int, str]]:
     """Export structured Markdown per source page before token chunking."""
     sections: list[tuple[int, str]] = []
-    for page_no in sorted(int(number) for number in document.pages):
+    page_numbers = sorted(int(number) for number in document.pages)
+    for page_index, page_no in enumerate(page_numbers, start=1):
         page_markdown = document.export_to_markdown(
             image_placeholder=IMAGE_PLACEHOLDER,
             traverse_pictures=True,
@@ -514,6 +516,14 @@ def _page_markdown_sections(
         page_markdown = _replace_table_markdown(page_markdown, page_tables)
         if page_markdown.strip():
             sections.append((page_no, page_markdown))
+        _report_progress(
+            progress_callback,
+            66 + round(11 * page_index / max(len(page_numbers), 1)),
+            "exporting_page_layout",
+            page=page_no,
+            completed=page_index,
+            total=len(page_numbers),
+        )
     if sections:
         return sections
 
@@ -719,7 +729,9 @@ def process_document(
         completed=detected_tables,
         total=detected_tables,
     )
-    page_sections = _page_markdown_sections(document, figures, tables)
+    page_sections = _page_markdown_sections(
+        document, figures, tables, progress_callback=progress_callback
+    )
     markdown = "\n\n".join(text for _, text in page_sections)
     logger.info(
         "Exported Docling document to Markdown",

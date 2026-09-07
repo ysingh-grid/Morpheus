@@ -12,11 +12,16 @@ from temporalio.exceptions import ActivityError
 
 with workflow.unsafe.imports_passed_through():
     from orchestration.activities import (
+        attach_existing_document_activity,
+        commit_document_bundle_activity,
         execute_agent_mcp_activity,
         extract_user_facts_activity,
+        generate_embeddings_activity,
         generate_direct_answer_activity,
         generate_answer_activity,
+        hash_and_deduplicate_document_activity,
         load_history_activity,
+        parse_docling_layout_activity,
         persist_session_turn_activity,
         run_agent_graph_activity,
         run_agent_retrieval_activity,
@@ -336,3 +341,116 @@ class AgentWorkflow:
             "sources_used": sources_used,
             "execution_history": self.execution_history,
         }
+
+
+@workflow.defn
+class DocumentIngestionWorkflow:
+    """Durably parse, embed, store, and attach one uploaded document."""
+
+    def __init__(self) -> None:
+        """Initialize queryable ingestion progress without process-local state."""
+        self.status = "queued"
+        self.stage = "queued"
+        self.progress = 0
+        self.details: dict[str, Any] = {}
+        self.documents: list[dict[str, Any]] = []
+        self.error: str | None = None
+
+    @workflow.query
+    def get_ingestion_progress(self) -> dict[str, Any]:
+        """Expose durable ingestion state for gateway and UI polling."""
+        return {
+            "status": self.status,
+            "stage": self.stage,
+            "progress": self.progress,
+            "details": self.details,
+            "documents": self.documents,
+            "error": self.error,
+        }
+
+    def _set_progress(
+        self, *, stage: str, progress: int, details: dict[str, Any] | None = None
+    ) -> None:
+        """Apply one monotonic, replay-safe workflow progress update."""
+        self.stage = stage
+        self.progress = max(self.progress, min(progress, 100))
+        if details is not None:
+            self.details = details
+
+    async def _activity(
+        self,
+        activity_function: Any,
+        args: list[Any],
+        timeout_seconds: int,
+        attempts: int,
+        heartbeat_seconds: int | None = None,
+    ) -> Any:
+        """Run one ingestion side effect with bounded retries and heartbeats."""
+        return await workflow.execute_activity(
+            activity_function,
+            args=args,
+            start_to_close_timeout=timedelta(seconds=timeout_seconds),
+            heartbeat_timeout=(
+                timedelta(seconds=heartbeat_seconds) if heartbeat_seconds is not None else None
+            ),
+            retry_policy=RetryPolicy(initial_interval=timedelta(seconds=1), maximum_attempts=attempts),
+        )
+
+    @workflow.run
+    async def run(self, file_path: str, user_id: str, session_id: str) -> dict[str, Any]:
+        """Execute the four durable ingestion stages for one saved upload."""
+        self.status = "processing"
+        try:
+            self._set_progress(stage="checking_existing_document", progress=5)
+            deduplication = await self._activity(
+                hash_and_deduplicate_document_activity, [file_path], 60, 3, 30
+            )
+            document_id = str(deduplication["document_id"])
+            if deduplication["already_ingested"]:
+                self._set_progress(stage="attaching_existing_document", progress=90)
+                await self._activity(
+                    attach_existing_document_activity,
+                    [document_id, user_id, session_id],
+                    30,
+                    3,
+                )
+                self.documents = [
+                    {
+                        "filename": str(deduplication["filename"]),
+                        "document_id": document_id,
+                        "status": "already_ingested",
+                        **dict(deduplication["stats"]),
+                    }
+                ]
+                self.status = "completed"
+                self._set_progress(stage="completed", progress=100)
+                return self.get_ingestion_progress()
+
+            self._set_progress(stage="parsing_document_layout", progress=10)
+            bundle = await self._activity(
+                parse_docling_layout_activity, [file_path], 1_800, 3, 120
+            )
+            self._set_progress(
+                stage="generating_embeddings",
+                progress=65,
+                details={"children": len(bundle.get("children", []))},
+            )
+            embeddings = await self._activity(
+                generate_embeddings_activity, [bundle["children"]], 600, 5, 60
+            )
+            bundle["_embeddings"] = embeddings
+            bundle["_ingestion_context"] = {"user_id": user_id, "session_id": session_id}
+            self._set_progress(stage="committing_document_bundle", progress=90)
+            document = await self._activity(
+                commit_document_bundle_activity, [bundle], 180, 3, 60
+            )
+        except ActivityError:
+            self.status = "failed"
+            self.error = "Document processing failed. Check the Morpheus service logs."
+            self._set_progress(stage="failed", progress=self.progress)
+            return self.get_ingestion_progress()
+
+        self.documents = [dict(document)]
+        self.status = "completed"
+        self._set_progress(stage="completed", progress=100)
+        return self.get_ingestion_progress()

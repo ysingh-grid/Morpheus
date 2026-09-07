@@ -5,18 +5,18 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Literal
 from uuid import uuid4
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from temporalio.client import Client
 from temporalio.service import RPCError
 
 from ingestion.doc_processor import document_id_for_file, process_document
+from orchestration.workflows import DocumentIngestionWorkflow
 from retrieval.pg_engine import (
     attach_documents_to_session,
     document_ingestion_stats,
@@ -37,10 +37,6 @@ MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
 
 app = FastAPI(title="Morpheus OpenAI-Compatible API", version="0.1.0")
 UploadProgressCallback = Callable[[int, str, dict[str, Any]], None]
-_UPLOAD_JOBS: dict[str, dict[str, Any]] = {}
-_UPLOAD_JOBS_LOCK = threading.Lock()
-# OcrMac uses Apple Vision/MPS resources that are not safe for concurrent Docling jobs.
-_UPLOAD_PROCESSING_LOCK = threading.Lock()
 
 
 class ClarificationSignalRequest(BaseModel):
@@ -241,30 +237,6 @@ async def _save_uploaded_pdf(upload: UploadFile) -> tuple[str, Path]:
     return original_filename, saved_path
 
 
-def _update_upload_job(job_id: str, **updates: Any) -> None:
-    """Apply one thread-safe, monotonic update to an in-process upload job."""
-    with _UPLOAD_JOBS_LOCK:
-        job = _UPLOAD_JOBS[job_id]
-        if "progress" in updates:
-            updates["progress"] = max(int(job["progress"]), int(updates["progress"]))
-        job.update(updates)
-
-
-def _upload_job_snapshot(job_id: str) -> DocumentUploadJobResponse:
-    """Return a validated copy of one upload job or a stable 404 response."""
-    with _UPLOAD_JOBS_LOCK:
-        job = _UPLOAD_JOBS.get(job_id)
-        snapshot = dict(job) if job is not None else None
-    if snapshot is None:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "error": {"message": "Upload job was not found.", "type": "not_found"}
-            },
-        )
-    return DocumentUploadJobResponse.model_validate(snapshot)
-
-
 def _process_saved_documents(
     saved_uploads: list[tuple[str, Path]],
     user: str,
@@ -375,55 +347,6 @@ def _process_saved_documents(
     return results
 
 
-def _run_upload_job(
-    job_id: str,
-    saved_uploads: list[tuple[str, Path]],
-    user: str,
-    chat_id: str,
-) -> None:
-    """Execute a background upload job and retain its latest pollable state."""
-    _update_upload_job(
-        job_id,
-        status="processing",
-        stage="waiting_for_document_processor",
-        progress=0,
-    )
-
-    def update_progress(percent: int, stage: str, details: dict[str, Any]) -> None:
-        _update_upload_job(job_id, progress=percent, stage=stage, details=details)
-
-    logger.info(
-        "Upload job waiting for exclusive document processor", extra={"job_id": job_id}
-    )
-    with _UPLOAD_PROCESSING_LOCK:
-        _update_upload_job(job_id, stage="starting", progress=0)
-        logger.info(
-            "Upload job acquired exclusive document processor", extra={"job_id": job_id}
-        )
-        try:
-            results = _process_saved_documents(
-                saved_uploads,
-                user,
-                chat_id,
-                progress_callback=update_progress,
-            )
-        except Exception:
-            _update_upload_job(
-                job_id,
-                status="failed",
-                stage="failed",
-                error="Document processing failed. Check the Morpheus service logs.",
-            )
-            return
-    _update_upload_job(
-        job_id,
-        status="completed",
-        progress=100,
-        stage="completed",
-        documents=[result.model_dump(mode="json") for result in results],
-    )
-
-
 async def _start_agent_workflow(
     latest_query: str,
     user_id: str,
@@ -529,7 +452,6 @@ async def upload_documents(
     response_model=DocumentUploadJobResponse,
 )
 async def start_document_upload_job(
-    background_tasks: BackgroundTasks,
     files: list[UploadFile] = File(...),
     user: str = Form("usr_local"),
     chat_id: str = Form("sess_default"),
@@ -556,20 +478,45 @@ async def start_document_upload_job(
             },
         )
 
-    saved_uploads = [await _save_uploaded_pdf(upload) for upload in files]
-    job_id = f"upload-{uuid4()}"
-    with _UPLOAD_JOBS_LOCK:
-        _UPLOAD_JOBS[job_id] = {
-            "job_id": job_id,
-            "status": "queued",
-            "progress": 0,
-            "stage": "queued",
-            "details": {"total_files": len(saved_uploads)},
-            "documents": [],
-            "error": None,
-        }
-    background_tasks.add_task(_run_upload_job, job_id, saved_uploads, user, chat_id)
-    return _upload_job_snapshot(job_id)
+    if len(files) != 1:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": {
+                    "message": "Start one durable ingestion job per PDF upload.",
+                    "type": "one_file_per_job",
+                }
+            },
+        )
+    original_filename, saved_path = await _save_uploaded_pdf(files[0])
+    document_id = document_id_for_file(saved_path)
+    workflow_id = f"ingest-{document_id}"
+    try:
+        client = await Client.connect(TEMPORAL_ADDRESS)
+        await client.start_workflow(
+            DocumentIngestionWorkflow.run,
+            args=[str(saved_path), user, chat_id],
+            id=workflow_id,
+            task_queue=TASK_QUEUE,
+        )
+    except Exception as error:
+        logger.exception("Temporal ingestion workflow start failed", extra={"workflow_id": workflow_id})
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": {
+                    "message": "Document ingestion workflow is unavailable.",
+                    "type": "service_unavailable",
+                }
+            },
+        ) from error
+    return DocumentUploadJobResponse(
+        job_id=workflow_id,
+        status="queued",
+        progress=0,
+        stage="queued",
+        details={"filename": original_filename, "document_id": document_id},
+    )
 
 
 @app.get(
@@ -577,8 +524,20 @@ async def start_document_upload_job(
     response_model=DocumentUploadJobResponse,
 )
 async def get_document_upload_job(job_id: str) -> DocumentUploadJobResponse:
-    """Return the latest completed-work percentage for one PDF upload job."""
-    return _upload_job_snapshot(job_id)
+    """Query the durable Temporal workflow state for one PDF upload job."""
+    try:
+        client = await Client.connect(TEMPORAL_ADDRESS)
+        handle = client.get_workflow_handle(job_id)
+        progress = await handle.query("get_ingestion_progress")
+    except Exception as error:
+        logger.exception("Temporal ingestion progress query failed", extra={"job_id": job_id})
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": {"message": "Upload job was not found.", "type": "not_found"}
+            },
+        ) from error
+    return DocumentUploadJobResponse(job_id=job_id, **progress)
 
 
 @app.get("/v1/models")

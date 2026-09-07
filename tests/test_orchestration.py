@@ -30,7 +30,7 @@ from orchestration.activities import (
     run_agent_retrieval_activity,
     verify_borderline_confidence_activity,
 )
-from orchestration.workflows import AgentWorkflow
+from orchestration.workflows import AgentWorkflow, DocumentIngestionWorkflow
 from retrieval.pg_engine import (
     _database_url,
     _psycopg,
@@ -421,6 +421,117 @@ async def _run_fake_workflow(
                             AgentWorkflow.user_clarification_signal, choice
                         )
                 return paused_state, await handle.result()
+
+
+@activity.defn(name="hash_and_deduplicate_document_activity")
+def _document_hash(_file_path: str) -> dict[str, Any]:
+    """Return a new-document result for durable ingestion workflow coverage."""
+    CALLS["document_hash"] += 1
+    return {
+        "document_id": "sha256-ingestion-test",
+        "content_sha256": "ingestion-test",
+        "filename": "ingestion-test.pdf",
+        "already_ingested": False,
+        "stats": {},
+    }
+
+
+@activity.defn(name="parse_docling_layout_activity")
+def _document_parse_after_worker_restart(_file_path: str) -> dict[str, Any]:
+    """Fail once mid-parse to model a worker loss before a retry resumes work."""
+    CALLS["document_parse"] += 1
+    if CALLS["document_parse"] == 1:
+        raise ApplicationError("worker restarted during Docling parsing", type="WorkerLost")
+    return {
+        "document": {
+            "document_id": "sha256-ingestion-test",
+            "source_path": "ingestion-test.pdf",
+        },
+        "parents": [{"parent_id": "parent-1"}],
+        "children": [
+            {"chunk_id": "child-1", "text_with_context": "First child"},
+            {"chunk_id": "child-2", "text_with_context": "Second child"},
+        ],
+    }
+
+
+@activity.defn(name="generate_embeddings_activity")
+def _document_embeddings(chunks: list[dict[str, Any]]) -> list[list[float]]:
+    """Return correctly shaped test vectors without calling Gemini."""
+    CALLS["document_embeddings"] += 1
+    return [[0.0] * 1536 for _ in chunks]
+
+
+@activity.defn(name="commit_document_bundle_activity")
+def _commit_document_bundle_once(bundle: dict[str, Any]) -> dict[str, Any]:
+    """Model the idempotent atomic commit boundary used after a parse retry."""
+    CALLS["document_commit"] += 1
+    committed_parent_ids = {
+        parent["parent_id"] for parent in bundle["parents"]
+    }
+    committed_child_ids = {child["chunk_id"] for child in bundle["children"]}
+    assert len(committed_parent_ids) == len(bundle["parents"])
+    assert len(committed_child_ids) == len(bundle["children"])
+    return {
+        "filename": "ingestion-test.pdf",
+        "document_id": "sha256-ingestion-test",
+        "status": "ingested",
+        "parents": len(committed_parent_ids),
+        "figures": 0,
+        "tables": 0,
+        "table_chunks": 0,
+        "children": len(committed_child_ids),
+    }
+
+
+async def _run_document_ingestion_workflow() -> dict[str, Any]:
+    """Run the durable ingestion workflow with a parse-retry activity double."""
+    CALLS.clear()
+    task_queue = f"document-ingestion-{uuid4()}"
+    activities = [
+        _document_hash,
+        _document_parse_after_worker_restart,
+        _document_embeddings,
+        _commit_document_bundle_once,
+    ]
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            async with Worker(
+                environment.client,
+                task_queue=task_queue,
+                workflows=[DocumentIngestionWorkflow],
+                activities=activities,
+                activity_executor=executor,
+            ):
+                handle = await environment.client.start_workflow(
+                    DocumentIngestionWorkflow.run,
+                    args=["/tmp/ingestion-test.pdf", "user", "session"],
+                    id=f"ingestion-{uuid4()}",
+                    task_queue=task_queue,
+                )
+                return await handle.result()
+
+
+def test_document_ingestion_workflow_retries_parse_without_duplicate_records() -> None:
+    """A parse crash retries before one atomic parent/child bundle commit."""
+    result = asyncio.run(_run_document_ingestion_workflow())
+
+    assert result["status"] == "completed"
+    assert result["progress"] == 100
+    assert result["documents"] == [
+        {
+            "filename": "ingestion-test.pdf",
+            "document_id": "sha256-ingestion-test",
+            "status": "ingested",
+            "parents": 1,
+            "figures": 0,
+            "tables": 0,
+            "table_chunks": 0,
+            "children": 2,
+        }
+    ]
+    assert CALLS["document_parse"] == 2
+    assert CALLS["document_commit"] == 1
 
 
 async def _run_real_workflow(query: str) -> dict[str, Any]:

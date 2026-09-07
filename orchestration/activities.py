@@ -8,19 +8,31 @@ import logging
 import os
 import re
 import shlex
+import time
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from openai import RateLimitError
 from pydantic import BaseModel, Field, ValidationError
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from core.config import DEFAULT_MODEL, llm_client
-from ingestion.doc_processor import process_document
+from ingestion.doc_processor import (
+    document_content_sha256,
+    document_id_for_file,
+    process_document,
+)
 from retrieval.pg_engine import (
+    EMBEDDING_BATCH_SIZE,
+    EMBEDDING_DIMENSION,
+    EMBEDDING_MODEL,
     _database_url,
     _psycopg,
+    _child_retrieval_text,
+    attach_documents_to_session,
+    document_ingestion_stats,
     document_overview_and_join,
     ingest_bundle,
     hybrid_search_and_join,
@@ -105,6 +117,127 @@ def ingest_document_activity(file_path: str) -> dict[str, int]:
         "Temporal document ingestion completed", extra={"file_path": str(path), **stats}
     )
     return stats
+
+
+@activity.defn
+def hash_and_deduplicate_document_activity(file_path: str) -> dict[str, Any]:
+    """Hash one upload and report whether its normalized records already exist."""
+    path = Path(file_path)
+    if not path.is_file():
+        raise _non_retryable(f"Document does not exist or is not a file: {file_path}")
+    content_sha256 = document_content_sha256(path)
+    document_id = document_id_for_file(path)
+    existing_stats = document_ingestion_stats(document_id)
+    activity.heartbeat(
+        {
+            "stage": "deduplication_checked",
+            "document_id": document_id,
+            "already_ingested": existing_stats is not None,
+        }
+    )
+    return {
+        "document_id": document_id,
+        "content_sha256": content_sha256,
+        "filename": path.name,
+        "already_ingested": existing_stats is not None,
+        "stats": existing_stats or {},
+    }
+
+
+@activity.defn
+def parse_docling_layout_activity(file_path: str) -> dict[str, Any]:
+    """Parse one document with Docling while heartbeating durable layout progress."""
+    path = Path(file_path)
+    if not path.is_file():
+        raise _non_retryable(f"Document does not exist or is not a file: {file_path}")
+
+    def heartbeat_progress(percent: int, stage: str, details: dict[str, Any]) -> None:
+        activity.heartbeat({"stage": stage, "progress": percent, "details": details})
+
+    try:
+        bundle = process_document(str(path), progress_callback=heartbeat_progress)
+    except (OSError, RuntimeError, ValueError) as error:
+        raise _non_retryable(f"Unable to parse document layout: {file_path}") from error
+    return dict(bundle)
+
+
+@activity.defn
+def generate_embeddings_activity(chunks: list[dict[str, Any]]) -> list[list[float]]:
+    """Generate child embeddings and back off exponentially when Gemini rate-limits."""
+    texts = [
+        _child_retrieval_text(str(chunk["text_with_context"])) for chunk in chunks
+    ]
+    embeddings: list[list[float]] = []
+    for offset in range(0, len(texts), EMBEDDING_BATCH_SIZE):
+        batch = texts[offset : offset + EMBEDDING_BATCH_SIZE]
+        for attempt in range(5):
+            try:
+                response = llm_client.embeddings.create(
+                    model=EMBEDDING_MODEL,
+                    input=batch,
+                    dimensions=EMBEDDING_DIMENSION,
+                )
+                embeddings.extend(list(item.embedding) for item in response.data)
+                break
+            except RateLimitError:
+                if attempt == 4:
+                    raise
+                delay_seconds = 2**attempt
+                activity.heartbeat(
+                    {
+                        "stage": "embedding_rate_limited",
+                        "attempt": attempt + 1,
+                        "retry_in_seconds": delay_seconds,
+                    }
+                )
+                time.sleep(delay_seconds)
+        activity.heartbeat(
+            {
+                "stage": "embedding_children",
+                "completed": min(offset + len(batch), len(texts)),
+                "total": len(texts),
+            }
+        )
+    if len(embeddings) != len(chunks):
+        raise RuntimeError("Gemini returned a different number of embeddings than chunks.")
+    if any(len(embedding) != EMBEDDING_DIMENSION for embedding in embeddings):
+        raise RuntimeError("Gemini returned embeddings with an unexpected dimension.")
+    return embeddings
+
+
+@activity.defn
+def commit_document_bundle_activity(bundle: dict[str, Any]) -> dict[str, Any]:
+    """Atomically insert a parsed bundle, its embeddings, and its chat attachment."""
+    ingestion_context = bundle.pop("_ingestion_context", {})
+    embeddings = bundle.pop("_embeddings", None)
+    if not isinstance(embeddings, list):
+        raise _non_retryable("Document bundle is missing generated embeddings.")
+    try:
+        stats = ingest_bundle(bundle, embeddings=embeddings)
+    except (OSError, RuntimeError, ValueError) as error:
+        raise _non_retryable("Unable to commit document bundle.") from error
+
+    user_id = ingestion_context.get("user_id")
+    session_id = ingestion_context.get("session_id")
+    if isinstance(user_id, str) and isinstance(session_id, str):
+        attach_documents_to_session(
+            user_id, session_id, [str(bundle["document"]["document_id"])]
+        )
+    activity.heartbeat({"stage": "document_committed", "stats": stats})
+    return {
+        "document_id": str(bundle["document"]["document_id"]),
+        "filename": Path(str(bundle["document"]["source_path"])).name,
+        "status": "ingested",
+        **stats,
+    }
+
+
+@activity.defn
+def attach_existing_document_activity(
+    document_id: str, user_id: str, session_id: str
+) -> None:
+    """Attach a deduplicated document to the requesting chat session."""
+    attach_documents_to_session(user_id, session_id, [document_id])
 
 
 @activity.defn

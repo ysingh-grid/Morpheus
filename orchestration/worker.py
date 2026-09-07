@@ -12,20 +12,25 @@ from temporalio.client import Client
 from temporalio.worker import Worker
 
 from orchestration.activities import (
+    attach_existing_document_activity,
+    commit_document_bundle_activity,
     execute_mcp_tool_activity,
     extract_user_facts_activity,
     execute_agent_mcp_activity,
+    generate_embeddings_activity,
     generate_direct_answer_activity,
     generate_answer_activity,
+    hash_and_deduplicate_document_activity,
     ingest_document_activity,
     load_history_activity,
+    parse_docling_layout_activity,
     persist_session_turn_activity,
     run_agent_graph_activity,
     run_agent_retrieval_activity,
     run_pgvector_retrieval_activity,
     verify_borderline_confidence_activity,
 )
-from orchestration.workflows import AgentWorkflow
+from orchestration.workflows import AgentWorkflow, DocumentIngestionWorkflow
 
 logger = logging.getLogger(__name__)
 
@@ -44,9 +49,14 @@ async def run_worker() -> None:
         worker = Worker(
             client,
             task_queue=TASK_QUEUE,
-            workflows=[AgentWorkflow],
+            workflows=[AgentWorkflow, DocumentIngestionWorkflow],
             activities=[
                 ingest_document_activity,
+                hash_and_deduplicate_document_activity,
+                parse_docling_layout_activity,
+                generate_embeddings_activity,
+                commit_document_bundle_activity,
+                attach_existing_document_activity,
                 run_pgvector_retrieval_activity,
                 run_agent_graph_activity,
                 execute_mcp_tool_activity,

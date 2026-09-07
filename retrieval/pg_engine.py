@@ -656,8 +656,9 @@ def consolidate_document_identity(
 
 
 def ingest_bundle(
-    bundle_json: dict,
+    bundle_json: dict[str, Any],
     progress_callback: ProgressCallback | None = None,
+    embeddings: list[list[float]] | None = None,
 ) -> dict[str, int]:
     """Embed and atomically load one normalized preprocessor bundle into PostgreSQL.
 
@@ -679,7 +680,15 @@ def ingest_bundle(
     retrieval_texts = [
         _child_retrieval_text(child["text_with_context"]) for child in children
     ]
-    embeddings = _embed(retrieval_texts, progress_callback)
+    if embeddings is None:
+        embeddings = _embed(retrieval_texts, progress_callback)
+    elif len(embeddings) != len(retrieval_texts):
+        raise ValueError("One embedding is required for every child chunk.")
+    elif any(len(embedding) != EMBEDDING_DIMENSION for embedding in embeddings):
+        raise ValueError(
+            f"Gemini embedding dimension must be {EMBEDDING_DIMENSION}; "
+            "update the schema and re-embed if the embedding model changes."
+        )
 
     psycopg = _psycopg()
     if progress_callback is not None:

@@ -6,14 +6,12 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
-from threading import Event, Thread
 
 import httpx
 import pytest
 from fastapi import HTTPException
 
 from interfaces.openai_api import _sanitize_messages, _workflow_id, app
-import interfaces.openai_api as openai_api
 from security.guardrails import GuardrailResult
 
 
@@ -445,102 +443,64 @@ def test_upload_pdf_processes_and_loads_normalized_bundle(tmp_path: Path) -> Non
     attach.assert_called_once_with("usr_local", "sess_default", ["ifc-upload-test"])
 
 
-def test_upload_job_exposes_completed_processing_state(tmp_path: Path) -> None:
-    """A background upload can be polled independently of the initiating request."""
-    bundle = {
-        "document": {
-            "document_id": "job-document",
-            "source_path": "job.pdf",
-            "summary": "Report",
-        }
-    }
-    stats = {"parents": 1, "children": 2, "figures": 0, "tables": 0, "table_chunks": 0}
+def test_upload_job_starts_durable_temporal_ingestion_workflow(tmp_path: Path) -> None:
+    """A pollable upload starts a durable workflow instead of an in-memory task."""
+    temporal_client = MagicMock()
+    temporal_client.start_workflow = AsyncMock()
 
     with (
         patch("interfaces.openai_api.UPLOAD_DIRECTORY", tmp_path),
-        patch("interfaces.openai_api.document_ingestion_stats", return_value=None),
-        patch("interfaces.openai_api.process_document", return_value=bundle),
-        patch("interfaces.openai_api.ingest_bundle", return_value=stats),
-        patch("interfaces.openai_api.attach_documents_to_session"),
+        patch("interfaces.openai_api.document_id_for_file", return_value="sha256-job"),
+        patch(
+            "interfaces.openai_api.Client.connect",
+            new=AsyncMock(return_value=temporal_client),
+        ),
     ):
         started = asyncio.run(_start_upload_job("job.pdf", b"%PDF-1.7 job"))
-        job = asyncio.run(_get_upload_job(started.json()["job_id"]))
 
     assert started.status_code == 202
-    assert job.status_code == 200
-    assert job.json()["status"] == "completed"
-    assert job.json()["progress"] == 100
-    assert job.json()["stage"] == "completed"
-    assert job.json()["documents"][0]["document_id"] == "job-document"
-
-
-def test_upload_jobs_serialize_document_processor_access() -> None:
-    """Concurrent HTTP jobs must not invoke OcrMac/MPS at the same time."""
-    first_started = Event()
-    release_first = Event()
-    completed_first = Event()
-    jobs = {
-        "job-first": {
-            "job_id": "job-first",
-            "status": "queued",
-            "progress": 0,
-            "stage": "queued",
-            "details": {},
-            "documents": [],
-            "error": None,
-        },
-        "job-second": {
-            "job_id": "job-second",
-            "status": "queued",
-            "progress": 0,
-            "stage": "queued",
-            "details": {},
-            "documents": [],
-            "error": None,
-        },
+    assert started.json() == {
+        "job_id": "ingest-sha256-job",
+        "status": "queued",
+        "progress": 0,
+        "stage": "queued",
+        "details": {"filename": "job.pdf", "document_id": "sha256-job"},
+        "documents": [],
+        "error": None,
     }
+    workflow_call = temporal_client.start_workflow.await_args
+    assert workflow_call.args[0].__name__ == "run"
+    assert workflow_call.kwargs["id"] == "ingest-sha256-job"
+    assert workflow_call.kwargs["task_queue"] == "rag-agent-queue"
+    assert workflow_call.kwargs["args"][1:] == ["usr_local", "sess_default"]
 
-    def process(
-        saved_uploads: list[tuple[str, Path]],
-        _user: str,
-        _chat_id: str,
-        progress_callback: object = None,
-    ) -> list[object]:
-        del progress_callback
-        if saved_uploads[0][0] == "first.pdf":
-            first_started.set()
-            assert release_first.wait(timeout=2)
-            completed_first.set()
-        else:
-            assert completed_first.is_set()
-        return []
 
-    with (
-        patch.object(openai_api, "_UPLOAD_JOBS", jobs),
-        patch.object(openai_api, "_process_saved_documents", side_effect=process),
+def test_upload_job_status_reads_temporal_workflow_query() -> None:
+    """Upload progress is sourced from a durable Temporal workflow query."""
+    handle = MagicMock()
+    handle.query = AsyncMock(
+        return_value={
+            "status": "processing",
+            "progress": 65,
+            "stage": "generating_embeddings",
+            "details": {"children": 2},
+            "documents": [],
+            "error": None,
+        }
+    )
+    temporal_client = MagicMock()
+    temporal_client.get_workflow_handle.return_value = handle
+
+    with patch(
+        "interfaces.openai_api.Client.connect",
+        new=AsyncMock(return_value=temporal_client),
     ):
-        first = Thread(
-            target=openai_api._run_upload_job,
-            args=("job-first", [("first.pdf", Path("first.pdf"))], "user", "chat"),
-        )
-        second = Thread(
-            target=openai_api._run_upload_job,
-            args=("job-second", [("second.pdf", Path("second.pdf"))], "user", "chat"),
-        )
-        first.start()
-        assert first_started.wait(timeout=2)
-        second.start()
-        for _ in range(20):
-            if jobs["job-second"]["stage"] == "waiting_for_document_processor":
-                break
-            Event().wait(0.01)
-        assert jobs["job-second"]["stage"] == "waiting_for_document_processor"
-        release_first.set()
-        first.join(timeout=2)
-        second.join(timeout=2)
+        response = asyncio.run(_get_upload_job("ingest-sha256-job"))
 
-    assert jobs["job-first"]["status"] == "completed"
-    assert jobs["job-second"]["status"] == "completed"
+    assert response.status_code == 200
+    assert response.json()["progress"] == 65
+    assert response.json()["stage"] == "generating_embeddings"
+    handle.query.assert_awaited_once_with("get_ingestion_progress")
 
 
 def test_upload_rejects_non_pdf_before_preprocessing(tmp_path: Path) -> None:
