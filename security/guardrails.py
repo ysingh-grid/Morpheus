@@ -27,6 +27,10 @@ Set `violation` to 1 when the content requests, instructs, facilitates, or
 meaningfully enables violent wrongdoing, self-harm, sexual exploitation,
 criminal activity, evasion of safety controls, or disclosure of personal or
 confidential data. Set `violation` to 0 for benign informational requests.
+Do not treat a user voluntarily providing their own non-sensitive work city,
+work location, job role, employer, or career preference as personal-data
+disclosure. Those self-profile updates are benign. Sensitive identifiers are
+redacted locally before this policy is evaluated.
 Use a concise, human-readable category when violation is 1."""
 
 EMAIL_PATTERN = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
@@ -38,6 +42,24 @@ OPENAI_KEY_PATTERN = re.compile(r"(?<![A-Za-z0-9_-])sk-[A-Za-z0-9_-]+")
 GITHUB_KEY_PATTERN = re.compile(r"(?<![A-Za-z0-9_-])ghp_[A-Za-z0-9]+")
 TAVILY_KEY_PATTERN = re.compile(r"(?<![A-Za-z0-9_-])tvly-[A-Za-z0-9_-]+")
 BEARER_TOKEN_PATTERN = re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]+", re.IGNORECASE)
+SELF_PROFILE_UPDATE_PATTERN = re.compile(
+    r"\b(?:my|i\s+am|i'm)\b.{0,80}\b(?:"
+    r"work(?:\s+location)?|office|city|job(?:\s+role)?|role|employer|career"
+    r")\b",
+    re.IGNORECASE,
+)
+PERSONAL_DATA_DISCLOSURE_CATEGORY = re.compile(
+    r"\b(?:personal|private|confidential)\s+(?:data|information)\s+disclosure\b",
+    re.IGNORECASE,
+)
+LOCAL_REDACTION_MARKERS = frozenset(
+    {
+        "[EMAIL_REDACTED]",
+        "[PHONE_REDACTED]",
+        "[CARD_REDACTED]",
+        "[SECRET_REDACTED]",
+    }
+)
 
 
 class GuardrailResult(BaseModel):
@@ -79,7 +101,9 @@ def _response_text(response: object) -> str:
     choices = getattr(response, "choices", [])
     if not choices:
         return ""
-    return (getattr(getattr(choices[0], "message", None), "content", None) or "").strip()
+    return (
+        getattr(getattr(choices[0], "message", None), "content", None) or ""
+    ).strip()
 
 
 def _screen_with_groq(
@@ -128,6 +152,20 @@ def _safeguard_category(response_text: str) -> str | None:
     return assessment.category if assessment.violation else None
 
 
+def _is_benign_self_profile_update(prompt: str) -> bool:
+    """Return whether a sanitized prompt is a non-sensitive self-profile update."""
+    return SELF_PROFILE_UPDATE_PATTERN.search(prompt) is not None and not any(
+        marker in prompt for marker in LOCAL_REDACTION_MARKERS
+    )
+
+
+def _is_self_profile_false_positive(category: str, prompt: str) -> bool:
+    """Identify a personal-data label incorrectly applied to a benign self-update."""
+    return PERSONAL_DATA_DISCLOSURE_CATEGORY.search(
+        category
+    ) is not None and _is_benign_self_profile_update(prompt)
+
+
 def scan_user_input(prompt: str) -> GuardrailResult:
     """Redact local PII, then screen the sanitized prompt for unsafe content.
 
@@ -143,7 +181,9 @@ def scan_user_input(prompt: str) -> GuardrailResult:
     sanitized_prompt = anonymize_pii(prompt)
 
     if not GROQ_API_KEY:
-        logger.warning("GROQ_API_KEY is not configured; skipping cloud guardrail screening")
+        logger.warning(
+            "GROQ_API_KEY is not configured; skipping cloud guardrail screening"
+        )
         return GuardrailResult(is_safe=True, sanitized_prompt=sanitized_prompt)
 
     try:
@@ -170,6 +210,11 @@ def scan_user_input(prompt: str) -> GuardrailResult:
         )
         category = _safeguard_category(safeguard_output)
         if category is not None:
+            if _is_self_profile_false_positive(category, sanitized_prompt):
+                logger.info(
+                    "Allowing benign self-profile update misclassified as personal-data disclosure"
+                )
+                return GuardrailResult(is_safe=True, sanitized_prompt=sanitized_prompt)
             return GuardrailResult(
                 is_safe=False,
                 sanitized_prompt=sanitized_prompt,
