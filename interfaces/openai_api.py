@@ -140,7 +140,7 @@ def _message_role(message: dict[str, Any]) -> str:
 def _sanitize_messages(
     messages: list[dict[str, Any]],
 ) -> tuple[str, list[dict[str, Any]]]:
-    """Screen every user turn and locally redact non-user conversation history."""
+    """Screen user turns for injection and only the current turn for safety."""
     if not messages:
         raise HTTPException(
             status_code=422,
@@ -170,14 +170,18 @@ def _sanitize_messages(
 
     sanitized_messages: list[dict[str, Any]] = []
     latest_sanitized_query = ""
-    for message, role, content in validated_messages:
+    final_message_index = len(validated_messages) - 1
+    for index, (message, role, content) in enumerate(validated_messages):
         sanitized_message = dict(message)
         if role != "user":
             sanitized_message["content"] = guardrails.anonymize_pii(content)
             sanitized_messages.append(sanitized_message)
             continue
 
-        scan_result = guardrails.scan_user_input(content)
+        scan_result = guardrails.scan_user_input(
+            content,
+            include_content_safety=index == final_message_index,
+        )
         if not scan_result.is_safe:
             raise HTTPException(
                 status_code=400,

@@ -166,8 +166,17 @@ def _is_self_profile_false_positive(category: str, prompt: str) -> bool:
     ) is not None and _is_benign_self_profile_update(prompt)
 
 
-def scan_user_input(prompt: str) -> GuardrailResult:
+def scan_user_input(
+    prompt: str,
+    *,
+    include_content_safety: bool = True,
+) -> GuardrailResult:
     """Redact local PII, then screen the sanitized prompt for unsafe content.
+
+    Prompt-injection screening always runs when Groq is configured. Callers that
+    are forwarding historical user turns can set ``include_content_safety`` to
+    ``False``: the history remains protected from prompt injection, while a
+    past destructive request cannot block an unrelated current request.
 
     If Groq is unavailable, local redaction is still applied and the caller receives
     a safe pass-through result with an explicit availability warning.
@@ -199,6 +208,9 @@ def scan_user_input(prompt: str) -> GuardrailResult:
                 sanitized_prompt=sanitized_prompt,
                 flag_reason="Prompt Injection / Jailbreak Attempt Detected",
             )
+
+        if not include_content_safety:
+            return GuardrailResult(is_safe=True, sanitized_prompt=sanitized_prompt)
 
         safeguard_output = _screen_with_groq(
             client,

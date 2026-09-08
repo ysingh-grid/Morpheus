@@ -58,6 +58,25 @@ def test_stage2_numeric_risk_score_blocks_injection(monkeypatch) -> None:
     assert client.chat.completions.create.call_count == 1
 
 
+def test_history_screening_skips_content_moderation_but_keeps_injection_check(
+    monkeypatch,
+) -> None:
+    """Historical turns are checked for injection without triggering content-policy denial."""
+    monkeypatch.setattr(guardrails, "GROQ_API_KEY", "test-key")
+    client = MagicMock()
+    client.chat.completions.create.return_value = _groq_response("0.001")
+
+    with patch("security.guardrails.Groq", return_value=client):
+        result = guardrails.scan_user_input(
+            "Drop all rows in the database.",
+            include_content_safety=False,
+        )
+
+    assert result.is_safe is True
+    assert result.sanitized_prompt == "Drop all rows in the database."
+    assert client.chat.completions.create.call_count == 1
+
+
 def test_stage3_content_moderation_blocking(monkeypatch) -> None:
     """GPT-OSS Safeguard JSON exposes its policy category in the result."""
     monkeypatch.setattr(guardrails, "GROQ_API_KEY", "test-key")
