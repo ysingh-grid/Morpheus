@@ -199,21 +199,14 @@ class Pipe:
                 r"^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}_", "", raw_document
             )
             display_name = clean_name
-            if len(display_name) > 22:
+            if len(display_name) > 30:
                 stem = Path(clean_name).stem
                 suffix = Path(clean_name).suffix
-                display_name = (
-                    f"{stem[:14].rstrip()}…{suffix}" if len(stem) > 14 else clean_name
-                )
+                display_name = f"{stem[:22]}…{suffix}" if len(stem) > 22 else clean_name
             view_base = self.valves.DOCUMENT_VIEW_BASE_URL.rstrip("/")
             encoded_doc = quote(raw_document)
             view_url = f"{view_base}/documents/{encoded_doc}/view#page={first_page}"
-            return (
-                f' [<span class="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300" '
-                f'style="color: #9ca3af; font-size: 0.72rem; font-weight: 400;" '
-                f'title="Open {clean_name} on page {pages}">'
-                f'📄 {display_name} · p. {pages}</span>]({view_url})'
-            )
+            return f" [📄 {display_name} · p. {pages}]({view_url})"
 
         return pattern.sub(replace_citation, answer)
 
