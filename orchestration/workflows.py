@@ -334,11 +334,6 @@ class AgentWorkflow:
     def _enable_approved_web_search(self, state: dict[str, Any]) -> None:
         """Keep Tavily on the plan after HITL so the next think/act can dispatch it."""
         web_search_tool = default_web_search_tool()
-        state["completed_tools"] = [
-            tool
-            for tool in state.get("completed_tools", [])
-            if tool != web_search_tool
-        ]
         plan = dict(state.get("agent_plan") or {})
         planned_tools = list(plan.get("tool_sequence", []))
         if web_search_tool and web_search_tool not in planned_tools:
@@ -484,6 +479,9 @@ class AgentWorkflow:
         state["mcp_results"] = [*state["mcp_results"], result_reference]
         state["completed_tools"].append(tool_name)
         state["clarification_needed"] = False
+        if self._is_web_search_tool(tool_name):
+            self.user_choice = None
+            state["user_choice"] = ""
         self._mark_observed(
             state,
             compact_mcp_observation(
@@ -541,17 +539,36 @@ class AgentWorkflow:
         self.execution_history.append("answer_generated")
 
     async def _act_clarification(self, state: dict[str, Any]) -> bool:
-        """Document-only misses stay terminal; otherwise pause for Tavily approval."""
+        """Document-only misses stay terminal; genuine clarification questions are returned to user; otherwise pause for Tavily approval."""
         plan = state.get("agent_plan", {})
         if plan.get("document_only") and state.get("clarification_needed"):
             self._publish_terminal_state(state, "not_found")
             self.execution_history.append("retrieval_not_found")
             return True
+        if plan.get("intent") == "clarify":
+            question = str(
+                plan.get("clarification_question")
+                or state.get("final_answer")
+                or "Please clarify your question."
+            )
+            state["final_answer"] = question
+            self._publish_terminal_state(state, "clarification_needed")
+            self.execution_history.append("clarification_question_asked")
+            return True
+        web_search_tool = default_web_search_tool()
+        if web_search_tool and web_search_tool in state.get("completed_tools", []):
+            if not state.get("final_answer"):
+                state["final_answer"] = (
+                    "I searched the web, but need further clarification to answer your question."
+                )
+            self._publish_terminal_state(state, "clarification_needed")
+            self.execution_history.append("clarification_needed_after_web_search")
+            return True
         decision = await self._await_web_search_approval(state)
         if decision == "timeout":
             return True
         if decision == "cancel":
-            self._reject_web_search(state, default_web_search_tool() or "tavily_search")
+            self._reject_web_search(state, web_search_tool or "tavily_search")
             return False
         self._enable_approved_web_search(state)
         self.status = "reasoning"

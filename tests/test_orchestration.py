@@ -907,6 +907,10 @@ def _next_action(state: dict[str, Any]) -> dict[str, Any]:
             tool_sequence = ["hybrid_search"]
             intent = "document"
             document_only = False
+        elif result["query"] == "vague request":
+            tool_sequence = []
+            intent = "clarify"
+            document_only = False
         else:
             tool_sequence = ["hybrid_search"]
             intent = "document"
@@ -954,6 +958,8 @@ def _next_action(state: dict[str, Any]) -> dict[str, Any]:
     completed_tools = set(result.get("completed_tools", []))
     plan = result["agent_plan"]
     if result.get("iteration_count", 0) >= result.get("max_turns", 5):
+        result["next_action"] = "ask_clarification"
+    elif plan.get("intent") == "clarify":
         result["next_action"] = "ask_clarification"
     elif result.get("clarification_needed"):
         remaining = [
@@ -1737,4 +1743,16 @@ def test_verify_borderline_confidence_loads_up_to_five_chunks() -> None:
             )
             assert res is True
             assert len(load_mock.call_args[0][0]) == 5
+
+
+def test_clarify_intent_returns_question_without_web_search_prompt() -> None:
+    """A vague request planned with intent=clarify returns the clarification question immediately."""
+    paused_state, result = asyncio.run(_run_fake_workflow("vague request"))
+
+    assert paused_state is None
+    assert result["status"] == "clarification_needed"
+    assert result["final_answer"] == "Please clarify your document question."
+    assert "clarification_question_asked" in result["execution_history"]
+    assert CALLS["mcp"] == 0
+
 
