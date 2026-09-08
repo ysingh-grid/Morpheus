@@ -5,3 +5,5 @@ __pycache__/
 *.py[cod]
 dummy_data/*.chunks.json
 dummy_data/*.extraction.log
+*.log
+uploaded_documents/
