@@ -34,8 +34,11 @@ def _route_from_planner(state: AgentState) -> Route:
     return state["next_action"]
 
 
+_COMPILED_AGENT: Any | None = None
+
+
 def compile_agent_graph() -> Any:
-    """Compile a pure ReAct decision graph with no database or network access."""
+    """Compile a pure decision graph with no database or network access."""
     builder = StateGraph(AgentState)
     builder.add_node("load_history", load_history_node)
     builder.add_node("planner", planner_node)
@@ -66,6 +69,14 @@ def compile_agent_graph() -> Any:
     builder.add_edge("direct_answer", END)
     builder.add_edge("synthesize_answer", END)
     return builder.compile()
+
+
+def get_agent() -> Any:
+    """Return the process-local compiled agent used by Temporal think activities."""
+    global _COMPILED_AGENT
+    if _COMPILED_AGENT is None:
+        _COMPILED_AGENT = compile_agent_graph()
+    return _COMPILED_AGENT
 
 
 def render_graph_png(output_path: str | Path | None = None) -> bytes:

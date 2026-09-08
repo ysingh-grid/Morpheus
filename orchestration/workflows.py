@@ -12,6 +12,12 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError
 
 with workflow.unsafe.imports_passed_through():
+    from agent.state import (
+        append_tool_observation,
+        compact_mcp_observation,
+        compact_retrieval_observation,
+        merge_retrieved_evidence,
+    )
     from orchestration.mcp_client import default_web_search_tool
 
     from orchestration.activities import (
@@ -124,8 +130,10 @@ class AgentWorkflow:
             "attached_documents": [],
             "retrieved_evidence": [],
             "mcp_results": [],
+            "tool_observations": [],
             "completed_tools": [],
             "tool_errors": {},
+            "needs_replan": False,
             "clarification_needed": False,
             "context_sufficient": False,
             "user_choice": "",
@@ -164,195 +172,21 @@ class AgentWorkflow:
 
             action = state["next_action"]
             if action == "hybrid_search":
-                self.execution_history.append("pgvector_retrieval_started")
-                document_query = str(
-                    state.get("agent_plan", {}).get("document_query") or query
-                )
-                document_lookup = str(
-                    state.get("agent_plan", {}).get("document_lookup") or "semantic"
-                )
-                try:
-                    retrieval = await self._activity(
-                        run_agent_retrieval_activity,
-                        [document_query, 5, state["document_ids"], document_lookup],
-                        30,
-                        2,
-                    )
-                except ActivityError:
-                    self.execution_history.append("pgvector_retrieval_failed")
-                    state["tool_errors"]["hybrid_search"] = (
-                        "Document retrieval was unavailable."
-                    )
-                    state["completed_tools"].append("hybrid_search")
-                    continue
-                state["retrieval_response"] = retrieval
-                state["retrieved_evidence"] = retrieval["evidence"]
-                state["completed_tools"].append("hybrid_search")
-                document_only = bool(state.get("agent_plan", {}).get("document_only"))
-                force_document_check = document_only and (
-                    retrieval["status"] != "grounded"
-                    or not retrieval.get("confidence", {}).get("lexical_match", False)
-                )
-                if (
-                    retrieval["status"] == "clarification_needed"
-                    or force_document_check
-                ):
-                    try:
-                        state["context_sufficient"] = await self._activity(
-                            verify_borderline_confidence_activity,
-                            [
-                                query,
-                                retrieval,
-                                state["retrieved_evidence"],
-                                force_document_check,
-                            ],
-                            30,
-                            2,
-                        )
-                    except ActivityError:
-                        state["context_sufficient"] = False
-                        self.execution_history.append("borderline_verification_failed")
-                    state["verification_pending"] = True
+                await self._act_retrieval(state, query)
                 continue
-
             if action == "mcp_search":
-                self.status = "web_searching"
-                plan = dict(state.get("agent_plan", {}))
-                tool_name = next(
-                    (
-                        name
-                        for name in plan.get("tool_sequence", [])
-                        if name != "hybrid_search"
-                        and name not in state["completed_tools"]
-                    ),
-                    "",
-                )
-                arguments = dict(plan.get("tool_arguments", {}).get(tool_name, {}))
-                if tool_name == default_web_search_tool() and not arguments:
-                    arguments = {"query": str(plan.get("web_query") or query)}
-                if not tool_name:
-                    state["tool_errors"]["mcp"] = "No registered MCP tool was selected."
-                    continue
-                self.execution_history.append(f"mcp_tool_started:{tool_name}")
-                try:
-                    if tool_name == "get_full_table":
-                        result_reference = await self._activity(
-                            get_full_table_activity,
-                            [
-                                session_id,
-                                str(arguments.get("doc_id", "")),
-                                str(arguments.get("table_id", "")),
-                                state.get("document_ids", []),
-                            ],
-                            30,
-                            2,
-                        )
-                    else:
-                        result_reference = await self._activity(
-                            execute_tool_activity,
-                            [session_id, tool_name, arguments],
-                            45,
-                            3,
-                        )
-                except ActivityError:
-                    self.execution_history.append(f"mcp_tool_failed:{tool_name}")
-                    state["tool_errors"][tool_name] = (
-                        f"The selected tool '{tool_name}' was unavailable."
-                    )
-                    state["completed_tools"].append(tool_name)
-                    continue
-                state["mcp_results"] = [*state["mcp_results"], result_reference]
-                state["completed_tools"].append(tool_name)
-                state["clarification_needed"] = False
+                if await self._act_mcp(state, session_id):
+                    break
                 continue
-
             if action == "generate_answer":
-                self.status = "generating_answer"
-                try:
-                    state["final_answer"] = await self._activity(
-                        generate_answer_activity,
-                        [
-                            query,
-                            state["retrieved_evidence"],
-                            state["mcp_results"],
-                            state["messages"],
-                        ],
-                        45,
-                        2,
-                    )
-                except ActivityError:
-                    self.status = "answer_generation_failed"
-                    self.execution_history.append("answer_generation_failed")
-                else:
-                    if not memory_save_requested:
-                        self._publish_terminal_state(state, "completed")
-                    self.execution_history.append("answer_generated")
+                await self._act_answer(state, query, memory_save_requested)
                 break
-
             if action == "direct_answer":
-                self.status = "generating_answer"
-                self.execution_history.append("direct_answer_started")
-                try:
-                    state["final_answer"] = await self._activity(
-                        generate_direct_answer_activity,
-                        [query, state["messages"], state["tool_errors"]],
-                        45,
-                        2,
-                    )
-                except ActivityError:
-                    self.status = "answer_generation_failed"
-                    self.execution_history.append("answer_generation_failed")
-                else:
-                    if not memory_save_requested:
-                        self._publish_terminal_state(state, "completed")
-                    self.execution_history.append("answer_generated")
+                await self._act_direct_answer(state, query, memory_save_requested)
                 break
-
             if action == "ask_clarification":
-                plan = state.get("agent_plan", {})
-                if plan.get("document_only") and state.get("clarification_needed"):
-                    self._publish_terminal_state(state, "not_found")
-                    self.execution_history.append("retrieval_not_found")
+                if await self._act_clarification(state):
                     break
-
-                self.status = "awaiting_clarification"
-                self.execution_history.append("workflow_paused_for_clarification")
-                try:
-                    await workflow.wait_condition(
-                        lambda: self.user_choice is not None,
-                        timeout=timedelta(hours=24),
-                        timeout_summary="clarification_expiry",
-                    )
-                except asyncio.TimeoutError:
-                    state["final_answer"] = "Clarification/search was not approved."
-                    self._publish_terminal_state(state, "timed_out")
-                    self.execution_history.append("clarification_timed_out")
-                    break
-
-                if self.user_choice != "approve_web_search":
-                    state["final_answer"] = "Clarification/search was not approved."
-                    self._publish_terminal_state(state, "cancelled")
-                    self.execution_history.append("clarification_cancelled")
-                    break
-
-                state["user_choice"] = self.user_choice
-                state["clarification_needed"] = False
-                state["completed_tools"] = [
-                    tool
-                    for tool in state["completed_tools"]
-                    if tool != default_web_search_tool()
-                ]
-                plan = dict(state.get("agent_plan", {}))
-                planned_tools = list(plan.get("tool_sequence", []))
-                web_search_tool = default_web_search_tool()
-                if web_search_tool and web_search_tool not in planned_tools:
-                    planned_tools.append(web_search_tool)
-                plan["tool_sequence"] = planned_tools
-                if plan.get("intent") == "clarify":
-                    plan["intent"] = "web_search"
-                state["agent_plan"] = plan
-                self.status = "reasoning"
-                self.execution_history.append("clarification_approved_web_search")
                 continue
 
         else:
@@ -418,6 +252,304 @@ class AgentWorkflow:
         self.execution_history.append("workflow_completed")
         self.final_answer = state.get("final_answer", "")
         return self._response(state)
+
+    def _pending_mcp_tool(self, state: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        """Return the next unfinished MCP/native tool and its planned arguments."""
+        plan = dict(state.get("agent_plan") or {})
+        completed_tools = set(state.get("completed_tools") or [])
+        tool_name = next(
+            (
+                name
+                for name in plan.get("tool_sequence", [])
+                if name != "hybrid_search" and name not in completed_tools
+            ),
+            "",
+        )
+        arguments = dict(plan.get("tool_arguments", {}).get(tool_name, {}))
+        web_search_tool = default_web_search_tool()
+        if tool_name == web_search_tool and not arguments:
+            arguments = {"query": str(plan.get("web_query") or state.get("query") or "")}
+        return tool_name, arguments
+
+    def _is_web_search_tool(self, tool_name: str) -> bool:
+        """Gate only Tavily; calculator, fetch, and table tools stay ungated."""
+        web_search_tool = default_web_search_tool()
+        return bool(web_search_tool) and tool_name == web_search_tool
+
+    def _mark_observed(self, state: dict[str, Any], observation: dict[str, Any]) -> None:
+        """Record one tool observation and force the next think step to re-plan."""
+        state["tool_observations"] = append_tool_observation(
+            state.get("tool_observations"), observation
+        )
+        state["needs_replan"] = True
+
+    async def _await_web_search_approval(self, state: dict[str, Any]) -> str:
+        """Pause for Tavily HITL. Returns approve_web_search, cancel, or timeout."""
+        existing = str(state.get("user_choice") or "")
+        if existing in {"approve_web_search", "cancel"}:
+            return existing
+        self.status = "awaiting_clarification"
+        self.execution_history.append("workflow_paused_for_clarification")
+        try:
+            await workflow.wait_condition(
+                lambda: self.user_choice is not None,
+                timeout=timedelta(hours=24),
+                timeout_summary="clarification_expiry",
+            )
+        except asyncio.TimeoutError:
+            state["final_answer"] = "Clarification/search was not approved."
+            self._publish_terminal_state(state, "timed_out")
+            self.execution_history.append("clarification_timed_out")
+            return "timeout"
+        if self.user_choice != "approve_web_search":
+            state["user_choice"] = "cancel"
+            return "cancel"
+        state["user_choice"] = "approve_web_search"
+        state["clarification_needed"] = False
+        self.execution_history.append("clarification_approved_web_search")
+        return "approve_web_search"
+
+    def _reject_web_search(self, state: dict[str, Any], tool_name: str) -> None:
+        """Keep thinking after a declined web search; never run Tavily on this turn."""
+        web_search_tool = default_web_search_tool() or tool_name
+        state["user_choice"] = "cancel"
+        state["clarification_needed"] = False
+        if web_search_tool and web_search_tool not in state.get("completed_tools", []):
+            state["completed_tools"] = [
+                *state.get("completed_tools", []),
+                web_search_tool,
+            ]
+        state["tool_errors"][web_search_tool] = "Web search was declined by the user."
+        self._mark_observed(
+            state,
+            compact_mcp_observation(
+                tool_name=web_search_tool,
+                arguments={},
+                error="Web search was declined by the user.",
+            ),
+        )
+        self.status = "reasoning"
+        self.execution_history.append("clarification_cancelled")
+
+    def _enable_approved_web_search(self, state: dict[str, Any]) -> None:
+        """Keep Tavily on the plan after HITL so the next think/act can dispatch it."""
+        web_search_tool = default_web_search_tool()
+        state["completed_tools"] = [
+            tool
+            for tool in state.get("completed_tools", [])
+            if tool != web_search_tool
+        ]
+        plan = dict(state.get("agent_plan") or {})
+        planned_tools = list(plan.get("tool_sequence", []))
+        if web_search_tool and web_search_tool not in planned_tools:
+            planned_tools.append(web_search_tool)
+        plan["tool_sequence"] = planned_tools
+        if plan.get("intent") == "clarify":
+            plan["intent"] = "web"
+        state["agent_plan"] = plan
+        state["needs_replan"] = False
+
+    async def _act_retrieval(self, state: dict[str, Any], query: str) -> None:
+        """Run hybrid search, optional borderline verify, then observe."""
+        self.execution_history.append("pgvector_retrieval_started")
+        document_query = str(
+            state.get("agent_plan", {}).get("document_query") or query
+        )
+        document_lookup = str(
+            state.get("agent_plan", {}).get("document_lookup") or "semantic"
+        )
+        try:
+            retrieval = await self._activity(
+                run_agent_retrieval_activity,
+                [document_query, 5, state["document_ids"], document_lookup],
+                30,
+                2,
+            )
+        except ActivityError:
+            self.execution_history.append("pgvector_retrieval_failed")
+            state["tool_errors"]["hybrid_search"] = (
+                "Document retrieval was unavailable."
+            )
+            state["completed_tools"].append("hybrid_search")
+            self._mark_observed(
+                state,
+                compact_retrieval_observation(
+                    document_query=document_query,
+                    document_lookup=document_lookup,
+                    retrieval={},
+                    error="Document retrieval was unavailable.",
+                ),
+            )
+            return
+        state["retrieval_response"] = retrieval
+        state["retrieved_evidence"] = merge_retrieved_evidence(
+            state.get("retrieved_evidence"), retrieval["evidence"]
+        )
+        state["completed_tools"].append("hybrid_search")
+        document_only = bool(state.get("agent_plan", {}).get("document_only"))
+        force_document_check = document_only and (
+            retrieval["status"] != "grounded"
+            or not retrieval.get("confidence", {}).get("lexical_match", False)
+        )
+        context_sufficient: bool | None = None
+        if retrieval["status"] == "clarification_needed" or force_document_check:
+            try:
+                state["context_sufficient"] = await self._activity(
+                    verify_borderline_confidence_activity,
+                    [
+                        query,
+                        retrieval,
+                        state["retrieved_evidence"],
+                        force_document_check,
+                    ],
+                    30,
+                    2,
+                )
+            except ActivityError:
+                state["context_sufficient"] = False
+                self.execution_history.append("borderline_verification_failed")
+            context_sufficient = bool(state["context_sufficient"])
+            state["verification_pending"] = True
+        self._mark_observed(
+            state,
+            compact_retrieval_observation(
+                document_query=document_query,
+                document_lookup=document_lookup,
+                retrieval=retrieval,
+                context_sufficient=context_sufficient,
+            ),
+        )
+
+    async def _act_mcp(self, state: dict[str, Any], session_id: str) -> bool:
+        """Run one MCP/native tool. Tavily always waits for HITL. True means stop."""
+        tool_name, arguments = self._pending_mcp_tool(state)
+        if not tool_name:
+            state["tool_errors"]["mcp"] = "No registered MCP tool was selected."
+            state["needs_replan"] = True
+            return False
+        if (
+            self._is_web_search_tool(tool_name)
+            and state.get("user_choice") != "approve_web_search"
+        ):
+            decision = await self._await_web_search_approval(state)
+            if decision == "timeout":
+                return True
+            if decision == "cancel":
+                self._reject_web_search(state, tool_name)
+                return False
+            self._enable_approved_web_search(state)
+        self.status = "web_searching"
+        self.execution_history.append(f"mcp_tool_started:{tool_name}")
+        try:
+            if tool_name == "get_full_table":
+                result_reference = await self._activity(
+                    get_full_table_activity,
+                    [
+                        session_id,
+                        str(arguments.get("doc_id", "")),
+                        str(arguments.get("table_id", "")),
+                        state.get("document_ids", []),
+                    ],
+                    30,
+                    2,
+                )
+            else:
+                result_reference = await self._activity(
+                    execute_tool_activity,
+                    [session_id, tool_name, arguments],
+                    45,
+                    3,
+                )
+        except ActivityError:
+            self.execution_history.append(f"mcp_tool_failed:{tool_name}")
+            state["tool_errors"][tool_name] = (
+                f"The selected tool '{tool_name}' was unavailable."
+            )
+            state["completed_tools"].append(tool_name)
+            self._mark_observed(
+                state,
+                compact_mcp_observation(
+                    tool_name=tool_name,
+                    arguments=arguments,
+                    error=f"The selected tool '{tool_name}' was unavailable.",
+                ),
+            )
+            return False
+        state["mcp_results"] = [*state["mcp_results"], result_reference]
+        state["completed_tools"].append(tool_name)
+        state["clarification_needed"] = False
+        self._mark_observed(
+            state,
+            compact_mcp_observation(
+                tool_name=tool_name,
+                arguments=arguments,
+                result=result_reference,
+            ),
+        )
+        return False
+
+    async def _act_answer(
+        self, state: dict[str, Any], query: str, memory_save_requested: bool
+    ) -> None:
+        """Generate a grounded answer from accumulated evidence."""
+        self.status = "generating_answer"
+        try:
+            state["final_answer"] = await self._activity(
+                generate_answer_activity,
+                [
+                    query,
+                    state["retrieved_evidence"],
+                    state["mcp_results"],
+                    state["messages"],
+                ],
+                45,
+                2,
+            )
+        except ActivityError:
+            self.status = "answer_generation_failed"
+            self.execution_history.append("answer_generation_failed")
+            return
+        if not memory_save_requested:
+            self._publish_terminal_state(state, "completed")
+        self.execution_history.append("answer_generated")
+
+    async def _act_direct_answer(
+        self, state: dict[str, Any], query: str, memory_save_requested: bool
+    ) -> None:
+        """Generate a tool-free conversational answer."""
+        self.status = "generating_answer"
+        self.execution_history.append("direct_answer_started")
+        try:
+            state["final_answer"] = await self._activity(
+                generate_direct_answer_activity,
+                [query, state["messages"], state["tool_errors"]],
+                45,
+                2,
+            )
+        except ActivityError:
+            self.status = "answer_generation_failed"
+            self.execution_history.append("answer_generation_failed")
+            return
+        if not memory_save_requested:
+            self._publish_terminal_state(state, "completed")
+        self.execution_history.append("answer_generated")
+
+    async def _act_clarification(self, state: dict[str, Any]) -> bool:
+        """Document-only misses stay terminal; otherwise pause for Tavily approval."""
+        plan = state.get("agent_plan", {})
+        if plan.get("document_only") and state.get("clarification_needed"):
+            self._publish_terminal_state(state, "not_found")
+            self.execution_history.append("retrieval_not_found")
+            return True
+        decision = await self._await_web_search_approval(state)
+        if decision == "timeout":
+            return True
+        if decision == "cancel":
+            self._reject_web_search(state, default_web_search_tool() or "tavily_search")
+            return False
+        self._enable_approved_web_search(state)
+        self.status = "reasoning"
+        return False
 
     def _start_fact_extraction(self, user_id: str, query: str, answer: str) -> None:
         """Persist explicit user facts without delaying the answer response."""

@@ -183,6 +183,40 @@ class Pipe:
         """Remove legacy Open WebUI numeric markers from a Morpheus-owned answer."""
         return re.sub(r"\s*\[\d+\](?=\s*(?:\[Source:|$|[.,;:]))", "", answer)
 
+    @staticmethod
+    def _clean_href(url: str) -> str:
+        """Strip wrapping brackets/punctuation that markdown autolinkers glue onto URLs."""
+        cleaned = url.strip()
+        if cleaned.startswith("<") and cleaned.endswith(">"):
+            cleaned = cleaned[1:-1]
+        return cleaned.rstrip("]).,;>'\"")
+
+    @classmethod
+    def _sanitize_markdown_urls(cls, answer: str) -> str:
+        """Keep web and PDF hrefs valid when they contain commas or wrapping brackets."""
+
+        def bracketed_url(match: re.Match[str]) -> str:
+            url = cls._clean_href(match.group("url"))
+            return f"<{url}>"
+
+        def markdown_link(match: re.Match[str]) -> str:
+            label = match.group("text")
+            href = cls._clean_href(match.group("href"))
+            return f"[{label}](<{href}>)"
+
+        rewritten = re.sub(
+            r"\[(?P<url>https?://[^\s\]]+)\](?!\()",
+            bracketed_url,
+            answer,
+            flags=re.IGNORECASE,
+        )
+        return re.sub(
+            r"\[(?P<text>[^\]]+)\]\((?P<href><[^>]+>|https?://[^)\s]+)\)",
+            markdown_link,
+            rewritten,
+            flags=re.IGNORECASE,
+        )
+
     def _format_source_bubbles(self, answer: str) -> str:
         """Transform text citations like [Source: doc.pdf, p. 1] into clean clickable markdown links."""
         pattern = re.compile(
@@ -191,7 +225,7 @@ class Pipe:
         )
 
         def replace_citation(match: re.Match[str]) -> str:
-            raw_document = match.group("document").strip()
+            raw_document = match.group("document").strip().rstrip("]")
             pages = match.group("pages").strip()
             first_page_match = re.search(r"\d+", pages)
             first_page = first_page_match.group(0) if first_page_match else "1"
@@ -204,11 +238,11 @@ class Pipe:
                 suffix = Path(clean_name).suffix
                 display_name = f"{stem[:22]}…{suffix}" if len(stem) > 22 else clean_name
             view_base = self.valves.DOCUMENT_VIEW_BASE_URL.rstrip("/")
-            encoded_doc = quote(raw_document)
+            encoded_doc = quote(raw_document, safe="")
             view_url = f"{view_base}/documents/{encoded_doc}/view#page={first_page}"
-            return f" [📄 {display_name} · p. {pages}]({view_url})"
+            return f" [📄 {display_name} · p. {pages}](<{view_url}>)"
 
-        return pattern.sub(replace_citation, answer)
+        return self._sanitize_markdown_urls(pattern.sub(replace_citation, answer))
 
     async def _emit_sources(
         self, emitter: EventEmitter | None, answer: str
@@ -222,7 +256,7 @@ class Pipe:
         )
         seen: set[str] = set()
         for match in pattern.finditer(answer):
-            raw_document = match.group("document").strip()
+            raw_document = match.group("document").strip().rstrip("]")
             pages = match.group("pages").strip()
             key = f"{raw_document}:{pages}"
             if key in seen:
@@ -234,7 +268,7 @@ class Pipe:
                 r"^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}_", "", raw_document
             )
             view_base = self.valves.DOCUMENT_VIEW_BASE_URL.rstrip("/")
-            encoded_doc = quote(raw_document)
+            encoded_doc = quote(raw_document, safe="")
             view_url = f"{view_base}/documents/{encoded_doc}/view#page={first_page}"
             title = f"{clean_name} (p. {pages})"
             await emitter(

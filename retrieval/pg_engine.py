@@ -7,6 +7,7 @@ winning children to their parent blocks, figures, and tables atomically.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import logging
 import os
@@ -471,6 +472,67 @@ def get_document_source_path(document_identifier: str) -> Path | None:
             return path if path.is_file() else None
 
 
+def get_figure_image_data(doc_id: str, figure_id: str) -> tuple[bytes, str] | None:
+    """Load raw image bytes and mime type for one stored document figure."""
+    cleaned_doc = doc_id.strip()
+    cleaned_fig = figure_id.strip()
+    if not cleaned_doc or not cleaned_fig:
+        return None
+    psycopg = _psycopg()
+    with psycopg.connect(_database_url()) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT image_bytes, mime_type
+                FROM figure_images
+                WHERE doc_id = %s AND figure_id = %s
+                """,
+                (cleaned_doc, cleaned_fig),
+            )
+            row = cursor.fetchone()
+            if row is None or not row[0]:
+                return None
+            return bytes(row[0]), str(row[1] or "image/png")
+
+
+def get_figure_images_for_parents(parent_ids: list[str]) -> list[dict[str, Any]]:
+    """Retrieve raw images and metadata for figures attached to given parent chunks."""
+    if not parent_ids:
+        return []
+    psycopg = _psycopg()
+    with psycopg.connect(_database_url()) as connection:
+        with connection.cursor(row_factory=psycopg.rows.dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT f.doc_id, f.id AS figure_id, f.caption, f.bounding_boxes,
+                       fi.image_bytes, fi.mime_type, p.id AS parent_id
+                FROM parents AS p
+                JOIN figures AS f
+                  ON f.doc_id = p.doc_id AND f.id = ANY(p.figure_ids)
+                JOIN figure_images AS fi
+                  ON fi.doc_id = f.doc_id AND fi.figure_id = f.id
+                WHERE p.id = ANY(%s)
+                ORDER BY f.doc_id, f.id
+                """,
+                (parent_ids,),
+            )
+            results = []
+            for r in cursor.fetchall():
+                b64 = base64.b64encode(bytes(r["image_bytes"])).decode("ascii")
+                results.append(
+                    {
+                        "doc_id": str(r["doc_id"]),
+                        "figure_id": str(r["figure_id"]),
+                        "caption": str(r["caption"]),
+                        "bounding_boxes": r["bounding_boxes"],
+                        "image_base64": b64,
+                        "mime_type": str(r["mime_type"] or "image/png"),
+                        "parent_id": str(r["parent_id"]),
+                    }
+                )
+            return results
+
+
 def _file_sha256(file_path: Path) -> str:
     """Hash a local document without loading the complete file into memory."""
     digest = hashlib.sha256()
@@ -805,6 +867,36 @@ def ingest_bundle(
                     for figure in figures
                 ],
             )
+            figure_images_to_insert = []
+            for figure in figures:
+                image_b64 = figure.get("image_base64")
+                if image_b64 and isinstance(image_b64, str):
+                    try:
+                        raw_bytes = base64.b64decode(image_b64)
+                        mime = str(figure.get("image_mime_type") or "image/png")
+                        figure_images_to_insert.append(
+                            (
+                                document_id,
+                                figure["figure_id"],
+                                psycopg.Binary(raw_bytes),
+                                mime,
+                            )
+                        )
+                    except Exception as err:
+                        logger.warning(
+                            "Could not decode figure image for storage", exc_info=err
+                        )
+            if figure_images_to_insert:
+                cursor.executemany(
+                    """
+                    INSERT INTO figure_images (doc_id, figure_id, image_bytes, mime_type)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (doc_id, figure_id) DO UPDATE
+                    SET image_bytes = EXCLUDED.image_bytes,
+                        mime_type = EXCLUDED.mime_type
+                    """,
+                    figure_images_to_insert,
+                )
             cursor.executemany(
                 """
                 INSERT INTO tables (

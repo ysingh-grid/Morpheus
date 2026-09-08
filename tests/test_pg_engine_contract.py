@@ -11,6 +11,8 @@ from retrieval.pg_engine import (
     _matched_table_text_for_reranking,
     _vector_literal,
     get_document_source_path,
+    get_figure_image_data,
+    get_figure_images_for_parents,
     get_full_table,
 )
 
@@ -131,5 +133,55 @@ def test_get_document_source_path_resolves_existing_file(tmp_path: Path) -> None
 
     assert resolved == doc_file
     assert resolved.is_file()
+
+
+def test_get_figure_image_data_queries_figure_images_table() -> None:
+    """Ensure get_figure_image_data queries the decoupled figure_images table by doc_id and figure_id."""
+    cursor = MagicMock()
+    cursor.fetchone.return_value = (b"\x89PNG\r\n\x1a\nfake", "image/png")
+    connection = MagicMock()
+    connection.cursor.return_value.__enter__.return_value = cursor
+    psycopg = MagicMock()
+    psycopg.connect.return_value.__enter__.return_value = connection
+
+    with patch("retrieval.pg_engine._psycopg", return_value=psycopg):
+        result = get_figure_image_data("doc-123", "figure-001")
+
+    assert result == (b"\x89PNG\r\n\x1a\nfake", "image/png")
+    statement, params = cursor.execute.call_args.args
+    assert "FROM figure_images" in statement
+    assert "WHERE doc_id = %s AND figure_id = %s" in statement
+    assert params == ("doc-123", "figure-001")
+
+
+def test_get_figure_images_for_parents() -> None:
+    """Ensure get_figure_images_for_parents joins parents, figures, and figure_images."""
+    cursor = MagicMock()
+    cursor.fetchall.return_value = [
+        {
+            "doc_id": "doc-1",
+            "figure_id": "fig-1",
+            "caption": "Diagram",
+            "bounding_boxes": [],
+            "image_bytes": b"fake-png-bytes",
+            "mime_type": "image/png",
+            "parent_id": "parent-1",
+        }
+    ]
+    connection = MagicMock()
+    connection.cursor.return_value.__enter__.return_value = cursor
+    psycopg = MagicMock()
+    psycopg.connect.return_value.__enter__.return_value = connection
+
+    with patch("retrieval.pg_engine._psycopg", return_value=psycopg):
+        images = get_figure_images_for_parents(["parent-1"])
+
+    assert len(images) == 1
+    assert images[0]["figure_id"] == "fig-1"
+    assert images[0]["image_base64"] == "ZmFrZS1wbmctYnl0ZXM="
+    statement, params = cursor.execute.call_args.args
+    assert "JOIN figure_images" in statement
+    assert params == (["parent-1"],)
+
 
 

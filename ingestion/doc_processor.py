@@ -61,12 +61,14 @@ class ParentBlock(TypedDict):
     table_ids: list[str]
 
 
-class Figure(TypedDict):
+class Figure(TypedDict, total=False):
     """One captioned figure and its source-document coordinates."""
 
     figure_id: str
     caption: str
     bounding_boxes: list[dict[str, object]]
+    image_base64: str
+    image_mime_type: str
 
 
 class DocumentMetadata(TypedDict):
@@ -181,15 +183,16 @@ def _ocrmac_options() -> OcrMacOptions:
         ) from error
 
 
-def _caption_image(image: object) -> str:
-    """Generate a dense semantic caption for a Docling-extracted image."""
+def _caption_image(image: object) -> tuple[str, str]:
+    """Generate a dense semantic caption and return base64 PNG data for an extracted image."""
     logger.info(
         "Requesting semantic caption for extracted figure",
         extra={"image_size": getattr(image, "size", None)},
     )
     image_buffer = BytesIO()
     image.save(image_buffer, format="PNG")
-    image_data = base64.b64encode(image_buffer.getvalue()).decode("ascii")
+    image_bytes = image_buffer.getvalue()
+    image_data = base64.b64encode(image_bytes).decode("ascii")
 
     response = llm_client.chat.completions.create(
         model=DEFAULT_MODEL,
@@ -217,7 +220,7 @@ def _caption_image(image: object) -> str:
     logger.info(
         "Received semantic figure caption", extra={"caption_characters": len(caption)}
     )
-    return caption
+    return caption, image_data
 
 
 def _bounding_boxes(item: object) -> list[dict[str, object]]:
@@ -279,11 +282,14 @@ def _figure_metadata(
             continue
 
         bounding_boxes = _bounding_boxes(item)
+        caption, image_base64 = _caption_image(image)
         figures.append(
             {
                 "figure_id": f"figure-{len(figures) + 1:03d}",
-                "caption": _caption_image(image),
+                "caption": caption,
                 "bounding_boxes": bounding_boxes,
+                "image_base64": image_base64,
+                "image_mime_type": "image/png",
             }
         )
         logger.info(

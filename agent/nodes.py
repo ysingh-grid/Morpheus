@@ -10,7 +10,13 @@ from typing import Any
 from langsmith import traceable
 from openai import APIError
 
-from agent.state import AgentPlan, AgentState
+from agent.state import (
+    MAX_RETRIEVAL_SHOTS,
+    AgentPlan,
+    AgentState,
+    hybrid_search_allowed,
+    retrieval_attempt_count,
+)
 from core.config import DEFAULT_MODEL, llm_client
 from orchestration.mcp_client import default_web_search_tool, registered_tool_specs
 
@@ -184,6 +190,31 @@ def _fallback_plan(state: AgentState) -> AgentPlan:
     explicit_document_request = _explicit_document_request(query)
     wants_documents = has_documents and explicit_document_request
     web_search_tool = default_web_search_tool()
+    observations = list(state.get("tool_observations") or [])
+    if observations:
+        if state.get("retrieved_evidence") or state.get("mcp_results"):
+            return AgentPlan(
+                intent="document" if state.get("retrieved_evidence") else "web",
+                tool_sequence=[],
+                document_only=bool(state.get("retrieved_evidence"))
+                and not bool(state.get("mcp_results")),
+                reason="Fallback: answer from observed tool results after a planning failure.",
+            )
+        if has_documents and hybrid_search_allowed(state, query):
+            return AgentPlan(
+                intent="document",
+                tool_sequence=["hybrid_search"],
+                document_only=True,
+                document_query=query,
+                reason="Fallback: retry document retrieval after a planning failure.",
+            )
+        return AgentPlan(
+            intent="clarify",
+            tool_sequence=[],
+            document_only=True,
+            clarification_question="I could not find enough evidence. Please clarify your question.",
+            reason="Fallback: no further safe tool remains after observed failures.",
+        )
     if explicit_document_request and not has_documents and not wants_web:
         return AgentPlan(
             intent="clarify",
@@ -228,7 +259,8 @@ def _fallback_plan(state: AgentState) -> AgentPlan:
 @traceable(name="create_agent_plan", run_type="chain")
 def _create_agent_plan(state: AgentState) -> AgentPlan:
     """Ask Gemini to choose zero, one, or multiple tools for the current turn."""
-    if _conversation_transform_request(state):
+    observations = list(state.get("tool_observations") or [])
+    if not observations and _conversation_transform_request(state):
         return AgentPlan(
             intent="conversation",
             tool_sequence=[],
@@ -237,6 +269,20 @@ def _create_agent_plan(state: AgentState) -> AgentPlan:
     document_ids = state.get("document_ids", [])
     recent_messages = state.get("messages", [])[-12:]
     mcp_tools = registered_tool_specs()
+    attempt_count = retrieval_attempt_count(observations)
+    replan_instructions = (
+        " You are replanning after tool_observations. Those records are compact outcomes, "
+        "not full document text. If hybrid_search was not_found or clarification_needed and "
+        f"remaining_retrieval_shots is greater than 0 (max {MAX_RETRIEVAL_SHOTS} shots), "
+        "select hybrid_search again with a rewritten document_query and/or a different "
+        "document_lookup. Never repeat an identical document_query. If retrieval is grounded "
+        "or context_sufficient is true, prefer an empty tool_sequence and answer. "
+        "If the user declined web search, never select tavily_search; answer from "
+        "uploaded documents or conversation. This plan lists only the next tools to "
+        "run now, typically zero or one."
+        if observations
+        else ""
+    )
     completion = llm_client.beta.chat.completions.parse(
         model=DEFAULT_MODEL,
         response_format=AgentPlan,
@@ -262,7 +308,8 @@ def _create_agent_plan(state: AgentState) -> AgentPlan:
                     "number; otherwise use semantic. "
                     "Choose clarify only when the request is genuinely ambiguous and cannot be "
                     "answered safely. Never select hybrid_search when no document IDs are "
-                    "available. Tool names must appear at most once and in execution order. "
+                    "available. In this plan, list each tool at most once and in execution order. "
+                    "You may select hybrid_search again in a later replan with a new query. "
                     "For every selected tool, write a concise standalone search query that "
                     "removes conversational routing phrases such as 'according to the uploaded "
                     "document' while preserving names, dates, numbers, and the information need. "
@@ -270,6 +317,7 @@ def _create_agent_plan(state: AgentState) -> AgentPlan:
                     "topic above', resolve the subject from recent_conversation in document_query. "
                     "For each selected MCP tool, provide tool_arguments keyed by tool name and "
                     "conforming to that tool's JSON Schema."
+                    + replan_instructions
                 ),
             },
             {
@@ -281,6 +329,14 @@ def _create_agent_plan(state: AgentState) -> AgentPlan:
                         "available_documents": state.get("attached_documents", []),
                         "available_mcp_tools": mcp_tools,
                         "recent_conversation": recent_messages,
+                        "tool_observations": observations,
+                        "retrieval_attempt_count": attempt_count,
+                        "remaining_retrieval_shots": max(
+                            0, MAX_RETRIEVAL_SHOTS - attempt_count
+                        ),
+                        "user_choice": state.get("user_choice") or "",
+                        "has_retrieved_evidence": bool(state.get("retrieved_evidence")),
+                        "has_mcp_results": bool(state.get("mcp_results")),
                     },
                     ensure_ascii=False,
                 ),
@@ -305,6 +361,12 @@ def _create_agent_plan(state: AgentState) -> AgentPlan:
                 "Please attach the document you want me to use in this chat."
             )
     plan.tool_sequence = unique_tools
+    web_search_tool = default_web_search_tool()
+    if state.get("user_choice") == "cancel" and web_search_tool:
+        unique_tools = [tool for tool in unique_tools if tool != web_search_tool]
+        plan.tool_sequence = unique_tools
+        if plan.intent in {"web", "document_and_web"}:
+            plan.intent = "document" if state.get("retrieved_evidence") else "conversation"
     if "hybrid_search" in unique_tools and not plan.document_query.strip():
         plan.document_query = state.get("query", "")
     plan.tool_arguments = {
@@ -332,27 +394,40 @@ def _create_agent_plan(state: AgentState) -> AgentPlan:
     return _scope_document_query(plan, state)
 
 
-def _planned_action(state: AgentState, plan: dict[str, Any]) -> str:
-    """Select the next unfinished tool or response action from the agent's plan."""
-    if plan.get("intent") == "clarify":
-        return "ask_clarification"
-
+def _next_plan_action(state: AgentState, plan: dict[str, Any]) -> str | None:
+    """Return the first currently executable tool from a fresh or residual plan."""
     completed_tools = set(state.get("completed_tools", []))
     registered_tool_names = {tool["name"] for tool in registered_tool_specs()}
-    tool_sequence = [
-        tool
-        for tool in plan.get("tool_sequence", [])
-        if tool == "hybrid_search" or tool in registered_tool_names
-    ]
+    document_query = str(plan.get("document_query") or state.get("query") or "")
+    for tool in plan.get("tool_sequence", []):
+        if tool == "hybrid_search":
+            if hybrid_search_allowed(state, document_query):
+                return "hybrid_search"
+            continue
+        if tool in registered_tool_names and tool not in completed_tools:
+            if tool == default_web_search_tool() and state.get("user_choice") == "cancel":
+                continue
+            return "mcp_search"
+    return None
 
+
+def _planned_action(state: AgentState, plan: dict[str, Any]) -> str:
+    """Select the next tool or response action from the current plan and observations."""
     if state.get("verification_pending"):
         return "verify_groundedness"
+    web_search_declined = state.get("user_choice") == "cancel"
+    if plan.get("intent") == "clarify" and not web_search_declined:
+        return "ask_clarification"
 
-    if state.get("clarification_needed"):
-        for tool in tool_sequence:
-            if tool not in completed_tools:
-                return "hybrid_search" if tool == "hybrid_search" else "mcp_search"
-        web_search_tool = default_web_search_tool()
+    next_tool = _next_plan_action(state, plan)
+    web_search_tool = default_web_search_tool()
+    completed_tools = set(state.get("completed_tools", []))
+
+    if state.get("clarification_needed") and not web_search_declined:
+        if next_tool == "hybrid_search":
+            return "hybrid_search"
+        if next_tool == "mcp_search":
+            return "mcp_search"
         if (
             state.get("user_choice") == "approve_web_search"
             and web_search_tool
@@ -361,12 +436,20 @@ def _planned_action(state: AgentState, plan: dict[str, Any]) -> str:
             return "mcp_search"
         return "ask_clarification"
 
-    for tool in tool_sequence:
-        if tool not in completed_tools:
-            return "hybrid_search" if tool == "hybrid_search" else "mcp_search"
+    if next_tool is not None:
+        return next_tool
+    if (
+        state.get("user_choice") == "approve_web_search"
+        and web_search_tool
+        and web_search_tool not in completed_tools
+    ):
+        return "mcp_search"
 
     has_tool_evidence = bool(state.get("retrieved_evidence") or state.get("mcp_results"))
-    if plan.get("document_only") and state.get("retrieval_response", {}).get("status") == "not_found":
+    document_query = str(plan.get("document_query") or state.get("query") or "")
+    if plan.get("document_only") and not has_tool_evidence:
+        if hybrid_search_allowed(state, document_query):
+            return "hybrid_search"
         return "ask_clarification"
     return "generate_answer" if has_tool_evidence else "direct_answer"
 
@@ -398,17 +481,23 @@ def load_history_node(state: AgentState) -> AgentState:
 
 @traceable(name="planner_node", run_type="chain")
 def planner_node(state: AgentState) -> AgentState:
-    """Let Gemini plan the turn, then select one bounded next action."""
+    """Plan once, then re-plan from tool observations after each Temporal activity."""
     if state.get("iteration_count", 0) >= state.get("max_turns", 5):
         return {"next_action": "ask_clarification"}
+    if state.get("verification_pending"):
+        return {"next_action": "verify_groundedness"}
     plan = state.get("agent_plan")
-    if plan is None:
+    if plan is None or state.get("needs_replan"):
         try:
             plan = _create_agent_plan(state).model_dump(mode="json")
         except (APIError, TypeError, ValueError) as error:
             logger.warning("Gemini agent planning failed; using conservative fallback", exc_info=error)
             plan = _scope_document_query(_fallback_plan(state), state).model_dump(mode="json")
-        return {"agent_plan": plan, "next_action": _planned_action(state, plan)}
+        return {
+            "agent_plan": plan,
+            "next_action": _planned_action(state, plan),
+            "needs_replan": False,
+        }
     return {"next_action": _planned_action(state, plan)}
 
 

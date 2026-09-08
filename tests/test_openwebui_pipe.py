@@ -247,8 +247,24 @@ def test_pipe_formats_source_citations_as_clickable_bubbles() -> None:
     formatted = pipe._format_source_bubbles(answer)
 
     assert "[📄 AWS Certified Cloud Pr….pdf · p. 1]" in formatted
-    assert "(http://localhost:8000/v1/documents/AWS%20Certified%20Cloud%20Practitioner.pdf/view#page=1)" in formatted
+    assert "(<http://localhost:8000/v1/documents/AWS%20Certified%20Cloud%20Practitioner.pdf/view#page=1>)" in formatted
     assert "<sup" not in formatted
+
+
+def test_pipe_strips_trailing_bracket_from_web_citation_urls() -> None:
+    """Bracket-wrapped or comma-containing web URLs must not keep a trailing ]."""
+    glassdoor = (
+        "https://www.glassdoor.com/Benefits/Grid-Dynamics-US-Benefits-"
+        "EI_IE245799.0,13_IL.14,16_IN1.htm"
+    )
+    answer = (
+        f"Grid Dynamics benefits are listed here [{glassdoor}] "
+        f"and also [Glassdoor]({glassdoor})]."
+    )
+    sanitized = Pipe._sanitize_markdown_urls(answer)
+    assert f"<{glassdoor}>" in sanitized
+    assert f"{glassdoor}]" not in sanitized
+    assert f"[Glassdoor](<{glassdoor}>)" in sanitized
 
 
 def test_pipe_handles_openwebui_utility_task_without_calling_gateway() -> None:

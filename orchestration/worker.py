@@ -11,6 +11,8 @@ from concurrent.futures import ThreadPoolExecutor
 from temporalio.client import Client
 from temporalio.worker import Worker
 
+from agent.graph import get_agent
+
 from orchestration.activities import (
     attach_existing_document_activity,
     commit_document_bundle_activity,
@@ -49,6 +51,8 @@ async def run_worker() -> None:
     for shutdown_signal in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(shutdown_signal, shutdown_event.set)
 
+    get_agent()
+    logger.info("Compiled LangGraph agent for Temporal think activities")
     with ThreadPoolExecutor(max_workers=4, thread_name_prefix="rag-activity") as activity_executor:
         worker = Worker(
             client,

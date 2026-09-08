@@ -58,6 +58,10 @@ SOURCE_CITATION_PATTERN = re.compile(
     r"\[Source:\s*(?P<document>.+?),\s*pp?\.\s*(?P<pages>[0-9,\s\-–]+)\]",
     re.IGNORECASE,
 )
+LOOSE_SOURCE_CITATION_PATTERN = re.compile(
+    r"[\[(]\s*Source:\s*(?P<document>.+?)\s*[,;:]\s*(?:pp?\.?|pages?)\s*(?P<pages>[0-9,\s\-–]+)\s*[\])]",
+    re.IGNORECASE,
+)
 OPENWEBUI_UPLOAD_PREFIX = re.compile(
     r"^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}_", re.IGNORECASE
 )
@@ -502,9 +506,9 @@ def run_pgvector_retrieval_activity(query: str, top_k: int = 5) -> dict[str, Any
 @_traced_temporal_activity("run_agent_graph_activity", "chain")
 async def run_agent_graph_activity(state: dict[str, Any]) -> dict[str, Any]:
     """Execute one bounded, side-effect-free LangGraph decision pass."""
-    from agent.graph import compile_agent_graph
+    from agent.graph import get_agent
 
-    result = await compile_agent_graph().ainvoke(state, {"recursion_limit": 8})
+    result = await get_agent().ainvoke(state, {"recursion_limit": 8})
     logger.info(
         "LangGraph agent completed",
         extra={
@@ -1002,10 +1006,13 @@ def _load_evidence_by_references(
             children = {record["id"]: record for record in cursor.fetchall()}
             cursor.execute(
                 """
-                SELECT p.id AS parent_id, f.id, f.caption, f.bounding_boxes
+                SELECT p.id AS parent_id, f.id, f.caption, f.bounding_boxes,
+                       fi.image_bytes, fi.mime_type
                 FROM parents AS p
                 JOIN figures AS f
                   ON f.doc_id = p.doc_id AND f.id = ANY(p.figure_ids)
+                LEFT JOIN figure_images AS fi
+                  ON fi.doc_id = f.doc_id AND fi.figure_id = f.id
                 WHERE p.id = ANY(%s)
                 """,
                 (parent_ids,),
@@ -1014,7 +1021,14 @@ def _load_evidence_by_references(
                 parent_id: [] for parent_id in parent_ids
             }
             for record in cursor.fetchall():
-                figures[record.pop("parent_id")].append(record)
+                pid = record.pop("parent_id")
+                img_bytes = record.pop("image_bytes", None)
+                mime = record.pop("mime_type", None) or "image/png"
+                fig_dict = dict(record)
+                if img_bytes:
+                    fig_dict["image_base64"] = base64.b64encode(bytes(img_bytes)).decode("ascii")
+                    fig_dict["mime_type"] = mime
+                figures[pid].append(fig_dict)
             cursor.execute(
                 """
                 SELECT
@@ -1139,6 +1153,75 @@ def _document_evidence_pages_by_name(
     return {name: pages for name, pages in pages_by_name.items() if pages}
 
 
+def _canonical_document_name(name: str) -> str:
+    """Compare citation filenames without upload prefixes, quotes, or case differences."""
+    return OPENWEBUI_UPLOAD_PREFIX.sub("", name.strip().strip("\"'")).casefold()
+
+
+def _resolve_document_name(
+    cited: str, allowed_pages_by_name: dict[str, set[int]]
+) -> str | None:
+    """Map a model-cited filename onto one grounded evidence filename."""
+    cited_name = cited.strip()
+    if cited_name in allowed_pages_by_name:
+        return cited_name
+    cited_canonical = _canonical_document_name(cited_name)
+    exact = [
+        name
+        for name in allowed_pages_by_name
+        if _canonical_document_name(name) == cited_canonical
+    ]
+    if len(exact) == 1:
+        return exact[0]
+    suffix = [
+        name
+        for name in allowed_pages_by_name
+        if cited_canonical.endswith(_canonical_document_name(name))
+        or _canonical_document_name(name).endswith(cited_canonical)
+    ]
+    if len(suffix) == 1:
+        return suffix[0]
+    return None
+
+
+def _parse_citation_pages(raw_pages: str) -> set[int] | None:
+    """Parse page lists and ranges; reject inverted ranges."""
+    pages: set[int] = set()
+    for start, end in re.findall(r"(\d+)(?:\s*[-–]\s*(\d+))?", raw_pages):
+        first_page = int(start)
+        last_page = int(end or start)
+        if first_page > last_page:
+            return None
+        pages.update(range(first_page, last_page + 1))
+    return pages
+
+
+def _format_citation_pages(pages: set[int]) -> str:
+    """Render grounded pages in the canonical p./pp. citation form."""
+    ordered = sorted(pages)
+    if len(ordered) == 1:
+        return f"p. {ordered[0]}"
+    if ordered == list(range(ordered[0], ordered[-1] + 1)):
+        return f"pp. {ordered[0]}–{ordered[-1]}"
+    return "p. " + ", ".join(str(page) for page in ordered)
+
+
+def _rewrite_source_citations(
+    answer: str, allowed_pages_by_name: dict[str, set[int]]
+) -> str:
+    """Normalize common Gemini citation variants to the canonical [Source: ...] form."""
+
+    def replace(match: re.Match[str]) -> str:
+        cited = match.group("document").strip()
+        resolved = _resolve_document_name(cited, allowed_pages_by_name) or cited
+        pages = _parse_citation_pages(match.group("pages"))
+        if not pages:
+            return match.group(0)
+        return f"[Source: {resolved}, {_format_citation_pages(pages)}]"
+
+    return LOOSE_SOURCE_CITATION_PATTERN.sub(replace, answer)
+
+
 def _source_citations_are_valid(
     answer: str, allowed_pages_by_name: dict[str, set[int]]
 ) -> bool:
@@ -1148,20 +1231,49 @@ def _source_citations_are_valid(
         return False
     cited_pages_by_name: dict[str, set[int]] = {}
     for citation in citations:
-        document_name = citation.group("document").strip()
-        cited_pages = cited_pages_by_name.setdefault(document_name, set())
-        for start, end in re.findall(
-            r"(\d+)(?:\s*[-–]\s*(\d+))?", citation.group("pages")
-        ):
-            first_page = int(start)
-            last_page = int(end or start)
-            if first_page > last_page:
-                return False
-            cited_pages.update(range(first_page, last_page + 1))
+        document_name = _resolve_document_name(
+            citation.group("document").strip(), allowed_pages_by_name
+        )
+        if document_name is None:
+            return False
+        cited_pages = _parse_citation_pages(citation.group("pages"))
+        if not cited_pages:
+            return False
+        cited_pages_by_name.setdefault(document_name, set()).update(cited_pages)
     return all(
         bool(pages) and pages <= allowed_pages_by_name.get(document_name, set())
         for document_name, pages in cited_pages_by_name.items()
     )
+
+
+def _attach_grounded_citations(
+    answer: str, allowed_pages_by_name: dict[str, set[int]]
+) -> str:
+    """Append one grounded citation per evidence document when the model omitted them."""
+    stripped = SOURCE_CITATION_PATTERN.sub("", answer)
+    stripped = LOOSE_SOURCE_CITATION_PATTERN.sub("", stripped)
+    stripped = re.sub(r"[ \t]{2,}", " ", stripped).strip()
+    suffixes = [
+        f"[Source: {name}, {_format_citation_pages({min(pages)})}]"
+        for name, pages in sorted(allowed_pages_by_name.items())
+        if pages
+    ]
+    if not suffixes:
+        return stripped
+    return f"{stripped} {' '.join(suffixes)}".strip()
+
+
+def _coerce_valid_source_citations(
+    answer: str, allowed_pages_by_name: dict[str, set[int]]
+) -> str:
+    """Return a citation-valid answer without inventing pages outside retrieved evidence."""
+    rewritten = _rewrite_source_citations(answer, allowed_pages_by_name)
+    if _source_citations_are_valid(rewritten, allowed_pages_by_name):
+        return rewritten
+    fallback = _attach_grounded_citations(rewritten, allowed_pages_by_name)
+    if not _source_citations_are_valid(fallback, allowed_pages_by_name):
+        raise ValueError("Gemini did not produce valid document-source citations.")
+    return fallback
 
 
 @traceable(name="extract_facts", run_type="chain")
@@ -1214,6 +1326,10 @@ def generate_answer_activity(
     mcp_results = _load_mcp_results(mcp_result_references)
     if not evidence and not mcp_results:
         raise _non_retryable("Grounded evidence is required to generate an answer.")
+    allowed_pages_by_name = _document_evidence_pages_by_name(evidence)
+    citation_map = {
+        name: sorted(pages) for name, pages in allowed_pages_by_name.items()
+    }
     user_facts = [
         str(message.get("content", "")).removeprefix("Known user fact ").strip()
         for message in messages
@@ -1226,6 +1342,32 @@ def generate_answer_activity(
         if isinstance(message, dict)
         and not str(message.get("content", "")).startswith("Known user fact")
     ][-12:]
+    user_content_parts: list[dict[str, Any]] = [
+        {
+            "type": "text",
+            "text": (
+                f"Question:\n{query}\n\n"
+                f"User Profile & Known Context:\n{json.dumps(user_facts, ensure_ascii=False) if user_facts else 'None'}\n\n"
+                f"Conversation:\n{json.dumps(recent_dialogue, ensure_ascii=False)}\n\n"
+                f"Grounded document evidence:\n{json.dumps(evidence, ensure_ascii=False)}\n\n"
+                f"Allowed document-page citations:\n{json.dumps(citation_map, ensure_ascii=False)}\n\n"
+                f"Web evidence:\n{json.dumps(mcp_results, ensure_ascii=False)}"
+            ),
+        }
+    ]
+    for item in evidence:
+        for fig in item.get("figures", []):
+            if fig.get("image_base64"):
+                mime = fig.get("mime_type") or "image/png"
+                user_content_parts.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime};base64,{fig['image_base64']}"},
+                    }
+                )
+    user_content: str | list[dict[str, Any]] = (
+        user_content_parts if len(user_content_parts) > 1 else user_content_parts[0]["text"]
+    )
     messages_payload = [
         {
             "role": "system",
@@ -1243,20 +1385,15 @@ def generate_answer_activity(
                 "for table facts, figure bounding-box page_no for figure facts, child page_numbers for child "
                 "facts, and parent_page_numbers only when necessary. Never infer a page number. "
                 "Do not invent citations, facts, or web results. If a source URL is present in web evidence, "
-                "cite it naturally. When the user explicitly asks to save relevant personal details, do not "
+                "cite it as a markdown link [title](<https://example.com/path>) with angle brackets around "
+                "the URL. Never wrap a bare URL in [square brackets]. When the user explicitly asks to save relevant personal details, do not "
                 "claim persistent storage is unavailable; state that the facts supported by this exchange will "
                 "be saved after the response is generated."
             ),
         },
         {
             "role": "user",
-            "content": (
-                f"Question:\n{query}\n\n"
-                f"User Profile & Known Context:\n{json.dumps(user_facts, ensure_ascii=False) if user_facts else 'None'}\n\n"
-                f"Conversation:\n{json.dumps(recent_dialogue, ensure_ascii=False)}\n\n"
-                f"Grounded document evidence:\n{json.dumps(evidence, ensure_ascii=False)}\n\n"
-                f"Web evidence:\n{json.dumps(mcp_results, ensure_ascii=False)}"
-            ),
+            "content": user_content,
         },
     ]
     completion = llm_client.chat.completions.create(
@@ -1266,31 +1403,31 @@ def generate_answer_activity(
     answer = completion.choices[0].message.content
     if not answer:
         raise ValueError("Gemini did not return an answer.")
-    allowed_pages_by_name = _document_evidence_pages_by_name(evidence)
-    if allowed_pages_by_name and not _source_citations_are_valid(
-        answer, allowed_pages_by_name
-    ):
-        repair = llm_client.chat.completions.create(
-            model=DEFAULT_MODEL,
-            messages=[
-                *messages_payload,
-                {"role": "assistant", "content": answer},
-                {
-                    "role": "user",
-                    "content": (
-                        "Revise the draft so every uploaded-document factual claim ends with a "
-                        "visible inline citation in the form [Source: filename, p. 12]. Do not "
-                        "use HTML, Markdown footnotes, or numbered citations. Use only this "
-                        "document-page map: "
-                        f"{ {name: sorted(pages) for name, pages in allowed_pages_by_name.items()} }. "
-                        "Return only the revised answer."
-                    ),
-                },
-            ],
-        )
-        answer = repair.choices[0].message.content
-        if not answer or not _source_citations_are_valid(answer, allowed_pages_by_name):
-            raise ValueError("Gemini did not produce valid document-source citations.")
+    if allowed_pages_by_name:
+        rewritten = _rewrite_source_citations(answer, allowed_pages_by_name)
+        if not _source_citations_are_valid(rewritten, allowed_pages_by_name):
+            repair = llm_client.chat.completions.create(
+                model=DEFAULT_MODEL,
+                messages=[
+                    *messages_payload,
+                    {"role": "assistant", "content": answer},
+                    {
+                        "role": "user",
+                        "content": (
+                            "Revise the draft so every uploaded-document factual claim ends with a "
+                            "visible inline citation in the form [Source: filename, p. 12]. Do not "
+                            "use HTML, Markdown footnotes, or numbered citations. Use only this "
+                            "document-page map: "
+                            f"{citation_map}. "
+                            "Return only the revised answer."
+                        ),
+                    },
+                ],
+            )
+            repaired = repair.choices[0].message.content
+            if repaired:
+                answer = repaired
+        answer = _coerce_valid_source_citations(answer, allowed_pages_by_name)
     logger.info(
         "Grounded answer generated",
         extra={"evidence_count": len(evidence), "mcp_result_count": len(mcp_results)},

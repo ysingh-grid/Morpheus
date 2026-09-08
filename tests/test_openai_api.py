@@ -701,7 +701,8 @@ def test_view_document_returns_inline_pdf_file(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/pdf"
-    assert response.headers["content-disposition"] == 'inline; filename="sample.pdf"'
+    assert 'inline; filename="sample.pdf"' in response.headers["content-disposition"]
+    assert "filename*=UTF-8''sample.pdf" in response.headers["content-disposition"]
     assert response.content == b"%PDF-1.7 sample data"
 
 
@@ -712,3 +713,47 @@ def test_view_document_returns_404_when_missing() -> None:
 
     assert response.status_code == 404
     assert response.json()["detail"]["error"]["type"] == "not_found"
+
+
+def test_view_document_strips_trailing_bracket_from_identifier(tmp_path: Path) -> None:
+    """A copied markdown href that includes ] still resolves the PDF."""
+    pdf_file = tmp_path / "sample.pdf"
+    pdf_file.write_bytes(b"%PDF-1.7 sample data")
+
+    with patch(
+        "interfaces.openai_api.get_document_source_path", return_value=pdf_file
+    ) as lookup:
+        response = asyncio.run(_view_document("sample.pdf]"))
+
+    assert response.status_code == 200
+    lookup.assert_called_once_with("sample.pdf")
+
+
+async def _view_figure(doc_id: str, figure_id: str) -> httpx.Response:
+    """Fetch stored figure image bytes through the ASGI application."""
+    async with _client() as client:
+        return await client.get(f"/v1/documents/{doc_id}/figures/{figure_id}")
+
+
+def test_view_figure_image_returns_png_response() -> None:
+    """A found figure image returns its stored binary bytes with image/png."""
+    with patch(
+        "interfaces.openai_api.get_figure_image_data",
+        return_value=(b"\x89PNG\r\n\x1a\nimage-data", "image/png"),
+    ):
+        response = asyncio.run(_view_figure("doc-1", "fig-1"))
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    assert response.headers["content-disposition"] == 'inline; filename="fig-1.png"'
+    assert response.content == b"\x89PNG\r\n\x1a\nimage-data"
+
+
+def test_view_figure_image_returns_404_when_missing() -> None:
+    """Missing figure image returns HTTP 404."""
+    with patch("interfaces.openai_api.get_figure_image_data", return_value=None):
+        response = asyncio.run(_view_figure("doc-1", "fig-missing"))
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["error"]["type"] == "not_found"
+

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
-from agent.graph import compile_agent_graph
+from agent.graph import compile_agent_graph, get_agent
 from agent.nodes import (
     _create_agent_plan,
     _fallback_plan,
@@ -15,7 +16,11 @@ from agent.nodes import (
     planner_node,
     verify_groundedness_node,
 )
-from agent.state import AgentPlan
+from agent.state import (
+    AgentPlan,
+    hybrid_search_allowed,
+    merge_retrieved_evidence,
+)
 
 
 def test_planner_node_document_plan_selects_hybrid_search() -> None:
@@ -291,6 +296,11 @@ def test_compile_agent_graph_exposes_the_react_dag() -> None:
     } <= node_names
 
 
+def test_get_agent_reuses_the_process_local_compiled_graph() -> None:
+    """Temporal think activities must wrap one compiled agent, not rebuild it."""
+    assert get_agent() is get_agent()
+
+
 def test_planner_node_at_turn_limit_routes_to_safe_clarification() -> None:
     """A bounded agent must not select another tool after its maximum turns."""
     result = planner_node(
@@ -342,3 +352,178 @@ def test_planner_node_runs_document_and_web_tools_in_sequence() -> None:
     state["completed_tools"] = ["hybrid_search"]
     state["retrieved_evidence"] = [{"chunk_id": "child-1"}]
     assert planner_node(state) == {"next_action": "mcp_search"}
+
+
+def test_planner_answers_from_documents_after_web_search_is_declined() -> None:
+    """A cancelled Tavily gate must not re-enter HITL; it should synthesize locally."""
+    result = planner_node(
+        {
+            "query": "What were IFC's assets?",
+            "user_choice": "cancel",
+            "needs_replan": False,
+            "clarification_needed": True,
+            "retrieved_evidence": [{"chunk_id": "chunk-1"}],
+            "mcp_results": [],
+            "completed_tools": ["hybrid_search", "tavily_search"],
+            "agent_plan": {
+                "intent": "document_and_web",
+                "tool_sequence": ["hybrid_search", "tavily_search"],
+                "document_only": False,
+                "clarification_question": "",
+                "reason": "Web search was requested, then declined.",
+            },
+        }
+    )
+
+    assert result == {"next_action": "generate_answer"}
+
+
+def test_planner_replans_from_tool_observations_instead_of_walking_the_old_sequence() -> None:
+    """A new observation must invoke Gemini again rather than reusing the first plan."""
+    selected_plan = AgentPlan(
+        intent="document",
+        tool_sequence=["hybrid_search"],
+        document_only=True,
+        document_query="IFC consolidated total assets 30 June 2024",
+        document_lookup="table",
+        reason="The first search missed the balance-sheet wording.",
+    )
+    completion = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(parsed=selected_plan))]
+    )
+    state = {
+        "query": "What were IFC's assets?",
+        "document_ids": ["ifc-report"],
+        "needs_replan": True,
+        "agent_plan": {
+            "intent": "document",
+            "tool_sequence": ["hybrid_search"],
+            "document_only": True,
+            "document_query": "What were IFC's assets?",
+            "reason": "Initial plan.",
+        },
+        "completed_tools": ["hybrid_search"],
+        "tool_observations": [
+            {
+                "tool": "hybrid_search",
+                "status": "not_found",
+                "document_query": "What were IFC's assets?",
+                "document_lookup": "semantic",
+                "evidence_count": 0,
+                "chunk_ids": [],
+                "confidence": {},
+            }
+        ],
+        "retrieved_evidence": [],
+        "messages": [],
+    }
+
+    with patch(
+        "agent.nodes.llm_client.beta.chat.completions.parse", return_value=completion
+    ) as parsed:
+        result = planner_node(state)
+
+    parsed.assert_called_once()
+    assert result["needs_replan"] is False
+    assert result["next_action"] == "hybrid_search"
+    assert result["agent_plan"]["document_query"] == (
+        "IFC consolidated total assets 30 June 2024"
+    )
+
+
+def test_planner_rejects_identical_retrieval_query_after_an_observation() -> None:
+    """Multi-shot retrieval cannot loop on the same document query."""
+    result = planner_node(
+        {
+            "query": "What were IFC's assets?",
+            "document_ids": ["ifc-report"],
+            "agent_plan": {
+                "intent": "document",
+                "tool_sequence": ["hybrid_search"],
+                "document_only": True,
+                "document_query": "What were IFC's assets?",
+                "reason": "Repeat the same search.",
+            },
+            "completed_tools": ["hybrid_search"],
+            "tool_observations": [
+                {
+                    "tool": "hybrid_search",
+                    "status": "not_found",
+                    "document_query": "What were IFC's assets?",
+                    "evidence_count": 0,
+                    "chunk_ids": [],
+                }
+            ],
+            "retrieved_evidence": [],
+        }
+    )
+
+    assert result == {"next_action": "ask_clarification"}
+
+
+def test_hybrid_search_allowed_permits_rewritten_query_and_blocks_duplicates() -> None:
+    """A later shot is allowed only when the retrieval query actually changed."""
+    state = {
+        "completed_tools": ["hybrid_search"],
+        "tool_observations": [
+            {
+                "tool": "hybrid_search",
+                "status": "not_found",
+                "document_query": "What were IFC's assets?",
+            }
+        ],
+    }
+    assert hybrid_search_allowed(state, "What were IFC's assets?") is False
+    assert hybrid_search_allowed(state, "IFC total assets 2024") is True
+
+
+def test_merge_retrieved_evidence_keeps_unique_chunk_ids_across_shots() -> None:
+    """Later retrieval shots accumulate new parents instead of replacing earlier hits."""
+    merged = merge_retrieved_evidence(
+        [{"chunk_id": "chunk-1", "parent_id": "parent-1"}],
+        [
+            {"chunk_id": "chunk-1", "parent_id": "parent-1"},
+            {"chunk_id": "chunk-2", "parent_id": "parent-2"},
+        ],
+    )
+    assert [item["chunk_id"] for item in merged] == ["chunk-1", "chunk-2"]
+
+
+def test_create_agent_plan_sends_tool_observations_when_replanning() -> None:
+    """Gemini must see compact tool outcomes before choosing the next action."""
+    selected_plan = AgentPlan(
+        intent="document",
+        tool_sequence=[],
+        reason="Observed evidence is sufficient.",
+    )
+    completion = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(parsed=selected_plan))]
+    )
+    observations = [
+        {
+            "tool": "hybrid_search",
+            "status": "grounded",
+            "document_query": "IFC assets 2024",
+            "evidence_count": 1,
+            "chunk_ids": ["chunk-1"],
+        }
+    ]
+
+    with patch(
+        "agent.nodes.llm_client.beta.chat.completions.parse", return_value=completion
+    ) as parsed:
+        plan = _create_agent_plan(
+            {
+                "query": "What were IFC's assets?",
+                "document_ids": ["ifc-report"],
+                "messages": [],
+                "tool_observations": observations,
+                "retrieved_evidence": [{"chunk_id": "chunk-1"}],
+            }
+        )
+
+    payload = json.loads(parsed.call_args.kwargs["messages"][1]["content"])
+    assert payload["tool_observations"] == observations
+    assert payload["retrieval_attempt_count"] == 1
+    assert payload["remaining_retrieval_shots"] == 2
+    assert plan.tool_sequence == []

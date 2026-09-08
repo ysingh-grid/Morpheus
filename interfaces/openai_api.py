@@ -13,7 +13,10 @@ from pathlib import Path
 from typing import Any, Callable, Literal
 from uuid import uuid4
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from urllib.parse import quote, unquote
+
+from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from langsmith import traceable
@@ -27,6 +30,7 @@ from retrieval.pg_engine import (
     attach_documents_to_session,
     document_ingestion_stats,
     get_document_source_path,
+    get_figure_image_data,
     ingest_bundle,
 )
 from security import guardrails
@@ -56,6 +60,12 @@ def _resolve_user_id(requested_user: Any) -> str:
 
 
 app = FastAPI(title="Morpheus OpenAI-Compatible API", version="0.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET", "HEAD", "POST", "OPTIONS"],
+    allow_headers=["*"],
+)
 UploadProgressCallback = Callable[[int, str, dict[str, Any]], None]
 
 
@@ -660,25 +670,80 @@ async def get_document_upload_job(job_id: str) -> DocumentUploadJobResponse:
     return _aggregate_ingestion_progress(job_id, list(progress_states))
 
 
-@app.get("/v1/documents/{document_identifier}/view")
+@app.get("/v1/documents/{document_identifier:path}/view")
 async def view_document(document_identifier: str) -> FileResponse:
     """Serve an uploaded PDF inline for direct in-browser page viewing."""
-    path = get_document_source_path(document_identifier)
+    identifier = unquote(document_identifier).strip().rstrip("]")
+    try:
+        path = get_document_source_path(identifier)
+    except Exception as error:
+        logger.exception(
+            "Document view lookup failed", extra={"document_identifier": identifier}
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": {
+                    "message": "Document viewing failed.",
+                    "type": "internal_error",
+                }
+            },
+        ) from error
     if path is None or not path.is_file():
         raise HTTPException(
             status_code=404,
             detail={
                 "error": {
-                    "message": f"Document '{document_identifier}' was not found.",
+                    "message": f"Document '{identifier}' was not found.",
                     "type": "not_found",
                 }
             },
         )
+    ascii_name = path.name.encode("ascii", "replace").decode("ascii").replace('"', "")
     return FileResponse(
         path=path,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'inline; filename="{path.name}"',
+            "Content-Disposition": (
+                f"inline; filename=\"{ascii_name}\"; "
+                f"filename*=UTF-8''{quote(path.name)}"
+            ),
+            "X-Content-Type-Options": "nosniff",
+            "Accept-Ranges": "bytes",
+        },
+    )
+
+
+@app.get("/v1/documents/{doc_id}/figures/{figure_id}")
+async def view_figure_image(doc_id: str, figure_id: str) -> Response:
+    """Serve the stored binary figure image directly from PostgreSQL."""
+    try:
+        data = await asyncio.to_thread(get_figure_image_data, doc_id, figure_id)
+    except Exception as error:
+        logger.exception(
+            "Figure image lookup failed", extra={"doc_id": doc_id, "figure_id": figure_id}
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={"error": {"message": "Figure viewing failed.", "type": "internal_error"}},
+        ) from error
+    if data is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": {
+                    "message": f"Figure image '{figure_id}' was not found for document '{doc_id}'.",
+                    "type": "not_found",
+                }
+            },
+        )
+    image_bytes, mime_type = data
+    return Response(
+        content=image_bytes,
+        media_type=mime_type,
+        headers={
+            "Content-Disposition": f'inline; filename="{figure_id}.png"',
+            "Cache-Control": "public, max-age=86400",
         },
     )
 

@@ -28,6 +28,7 @@ from orchestration.activities import (
     _document_evidence_pages,
     _document_evidence_pages_by_name,
     _page_grounded_child_text,
+    _rewrite_source_citations,
     _source_citations_are_valid,
     execute_tool_activity,
     generate_direct_answer_activity,
@@ -503,6 +504,20 @@ def test_source_citation_validation_rejects_missing_or_unavailable_pages() -> No
     assert not _source_citations_are_valid(
         "Assets rose. [Source: report.pdf, pp. 12–15]", allowed
     )
+    assert _source_citations_are_valid(
+        "Assets rose. [Source: REPORT.PDF, p. 12]", allowed
+    )
+
+
+def test_rewrite_source_citations_normalizes_page_wording_and_filenames() -> None:
+    """Gemini page/filename variants must become canonical grounded citations."""
+    allowed = {"Circular.pdf": {1, 2}}
+    rewritten = _rewrite_source_citations(
+        "Deadline is August 10 (Source: 11111111-2222-3333-4444-555555555555_Circular.pdf, page 1).",
+        allowed,
+    )
+    assert rewritten == "Deadline is August 10 [Source: Circular.pdf, p. 1]."
+    assert _source_citations_are_valid(rewritten, allowed)
 
 
 def test_generate_answer_repairs_missing_page_citation() -> None:
@@ -559,6 +574,97 @@ def test_generate_answer_repairs_missing_page_citation() -> None:
 
     assert answer == "The total was 42. [Source: report.pdf, p. 7]"
     assert create.call_count == 2
+
+
+def test_generate_answer_accepts_page_word_citations_without_repair() -> None:
+    """A draft that uses 'page N' should be rewritten locally instead of failing the activity."""
+    evidence = [
+        {
+            "chunk_id": "child-1",
+            "parent_id": "parent-1",
+            "document_id": "document-1",
+            "child_text": "The total was 42.",
+            "parent_text": "The total was 42.",
+            "document_name": "report.pdf",
+            "page_numbers": [7],
+            "parent_page_numbers": [7],
+            "figures": [],
+            "tables": [],
+            "matched_table_chunks": [],
+        }
+    ]
+    response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    content="The total was 42. [Source: report.pdf, page 7]"
+                )
+            )
+        ]
+    )
+
+    with (
+        patch(
+            "orchestration.activities._load_evidence_by_references",
+            return_value=evidence,
+        ),
+        patch("orchestration.activities._load_mcp_results", return_value=[]),
+        patch(
+            "orchestration.activities.llm_client.chat.completions.create",
+            return_value=response,
+        ) as create,
+    ):
+        answer = generate_answer_activity(
+            "What was the total?",
+            [{"chunk_id": "child-1", "parent_id": "parent-1"}],
+            [],
+            [],
+        )
+
+    assert answer == "The total was 42. [Source: report.pdf, p. 7]"
+    assert create.call_count == 1
+
+
+def test_generate_answer_attaches_grounded_citation_after_failed_repair() -> None:
+    """A citation-invalid draft must not fail the Temporal activity after repair."""
+    evidence = [
+        {
+            "chunk_id": "child-1",
+            "parent_id": "parent-1",
+            "document_id": "document-1",
+            "child_text": "The total was 42.",
+            "parent_text": "The total was 42.",
+            "document_name": "report.pdf",
+            "page_numbers": [7],
+            "parent_page_numbers": [7],
+            "figures": [],
+            "tables": [],
+            "matched_table_chunks": [],
+        }
+    ]
+    uncited = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content="The total was 42."))]
+    )
+
+    with (
+        patch(
+            "orchestration.activities._load_evidence_by_references",
+            return_value=evidence,
+        ),
+        patch("orchestration.activities._load_mcp_results", return_value=[]),
+        patch(
+            "orchestration.activities.llm_client.chat.completions.create",
+            side_effect=[uncited, uncited],
+        ),
+    ):
+        answer = generate_answer_activity(
+            "What was the total?",
+            [{"chunk_id": "child-1", "parent_id": "parent-1"}],
+            [],
+            [],
+        )
+
+    assert answer == "The total was 42. [Source: report.pdf, p. 7]"
 
 
 def test_extract_facts_prompts_for_document_driven_user_learning() -> None:
@@ -676,6 +782,60 @@ def test_generate_answer_activity_pins_user_facts_and_personalizes_prompt() -> N
     assert "known user profile facts and preferences" in system_prompt
 
 
+def test_generate_answer_activity_attaches_multimodal_figure_image_blocks() -> None:
+    """When evidence includes figures with image_base64, image_url parts are attached to the prompt."""
+    evidence = [
+        {
+            "document_name": "report.pdf",
+            "page_numbers": [14],
+            "parent_page_numbers": [14],
+            "matched_table_chunks": [],
+            "figures": [
+                {
+                    "figure_id": "fig-1",
+                    "caption": "Architecture diagram",
+                    "image_base64": "ZmFrZS1wbmctYnl0ZXM=",
+                    "mime_type": "image/png",
+                }
+            ],
+            "tables": [],
+        }
+    ]
+    response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    content="Figure 1 illustrates the pipeline. [Source: report.pdf, p. 14]"
+                )
+            )
+        ]
+    )
+
+    with (
+        patch("orchestration.activities._load_evidence_by_references", return_value=evidence),
+        patch("orchestration.activities._load_mcp_results", return_value=[]),
+        patch.object(
+            workflow_activities.llm_client.chat.completions,
+            "create",
+            return_value=response,
+        ) as create,
+    ):
+        answer = generate_answer_activity(
+            "Explain Figure 1",
+            [{"chunk_id": "c1", "parent_id": "p1"}],
+            [],
+            [{"role": "user", "content": "Explain Figure 1"}],
+        )
+
+    assert "Figure 1 illustrates" in answer
+    user_payload = create.call_args.kwargs["messages"][1]["content"]
+    assert isinstance(user_payload, list)
+    assert user_payload[0]["type"] == "text"
+    assert "Explain Figure 1" in user_payload[0]["text"]
+    assert user_payload[1]["type"] == "image_url"
+    assert user_payload[1]["image_url"]["url"] == "data:image/png;base64,ZmFrZS1wbmctYnl0ZXM="
+
+
 @activity.defn(name="extract_user_facts_activity")
 def _record_user_facts(_user_id: str, _prompt: str, _response: str) -> bool:
     """Keep workflow tests focused on agent orchestration behavior."""
@@ -767,6 +927,29 @@ def _next_action(state: dict[str, Any]) -> dict[str, Any]:
     if result.get("verification_pending"):
         result["clarification_needed"] = not result.get("context_sufficient", False)
         result["verification_pending"] = False
+    if result.get("needs_replan") and result["query"] == "retry retrieval":
+        hybrid_attempts = sum(
+            1
+            for observation in result.get("tool_observations") or []
+            if observation.get("tool") == "hybrid_search"
+        )
+        result["needs_replan"] = False
+        if hybrid_attempts == 1:
+            result["agent_plan"] = {
+                "intent": "document",
+                "tool_sequence": ["hybrid_search"],
+                "tool_arguments": {},
+                "document_only": True,
+                "document_query": "retry retrieval rewritten",
+                "document_lookup": "table",
+                "clarification_question": "",
+                "reason": "Deterministic multi-shot retrieval replan.",
+            }
+            result["next_action"] = "hybrid_search"
+            return result
+        result["next_action"] = "generate_answer"
+        return result
+    result["needs_replan"] = False
     completed_tools = set(result.get("completed_tools", []))
     plan = result["agent_plan"]
     if result.get("iteration_count", 0) >= result.get("max_turns", 5):
@@ -816,12 +999,19 @@ def _retrieval(
 ) -> dict[str, Any]:
     """Return compact references only, never full parent/table payloads."""
     CALLS["retrieval"] += 1
-    if query == "not found":
+    if query in {"not found", "retry retrieval"}:
         return {
             "status": "not_found",
             "message": "Not found in uploaded documents.",
             "confidence": {},
             "evidence": [],
+        }
+    if query == "retry retrieval rewritten":
+        return {
+            "status": "grounded",
+            "message": "Grounded evidence retrieved after a rewritten query.",
+            "confidence": {},
+            "evidence": [{"chunk_id": "chunk-retry", "parent_id": "parent-retry"}],
         }
     if query in {
         "ambiguous",
@@ -1328,7 +1518,11 @@ def test_agent_workflow_returns_real_not_found_without_human_pause() -> None:
 def test_mcp_retry_does_not_repeat_retrieval() -> None:
     """A late MCP retry must not rerun earlier retrieval or graph decisions."""
     _, result = asyncio.run(
-        _run_fake_workflow("ambiguous with web", mcp_activity=_flaky_mcp)
+        _run_fake_workflow(
+            "ambiguous with web",
+            choices=("approve_web_search",),
+            mcp_activity=_flaky_mcp,
+        )
     )
     assert result["status"] == "completed"
     assert CALLS == Counter(
@@ -1355,13 +1549,32 @@ def test_borderline_sufficient_context_bypasses_hitl() -> None:
 
 def test_combined_plan_stores_only_mcp_reference_in_workflow_response() -> None:
     """A document-plus-web plan retains compact references from both tools."""
-    paused_state, result = asyncio.run(_run_fake_workflow("ambiguous with web"))
-    assert paused_state is None
+    paused_state, result = asyncio.run(
+        _run_fake_workflow("ambiguous with web", choices=("approve_web_search",))
+    )
+    assert paused_state is not None
+    assert paused_state["status"] == "awaiting_clarification"
     assert result["sources_used"] == ["pgvector", "mcp_web_search"]
     assert result["evidence"][-1] == {
         "tool_result_id": "tool-1",
         "tool_name": "tavily_search",
     }
+
+
+def test_web_search_always_pauses_for_hitl_even_when_the_planner_selects_tavily() -> None:
+    """Tavily never runs until approve_web_search, including explicit web plans."""
+    paused_state, result = asyncio.run(
+        _run_fake_workflow("ambiguous with web", choices=("cancel",))
+    )
+
+    assert paused_state is not None
+    assert paused_state["status"] == "awaiting_clarification"
+    assert result["status"] == "completed"
+    assert result["final_answer"] == "Grounded answer"
+    assert CALLS["mcp"] == 0
+    assert CALLS["answer"] == 1
+    assert "workflow_paused_for_clarification" in result["execution_history"]
+    assert "clarification_cancelled" in result["execution_history"]
 
 
 def test_registry_selected_calculator_runs_through_generic_tool_activity() -> None:
@@ -1394,17 +1607,33 @@ def test_workflow_suspends_and_resumes_on_clarification_signal() -> None:
 
 
 def test_workflow_cancellation_ends_paused_clarification_without_web_search() -> None:
-    """Cancellation resolves the durable wait without executing the MCP tool."""
+    """Declined web search must not call Tavily; the agent answers from documents."""
     paused_state, result = asyncio.run(
         _run_fake_workflow("ambiguous requires approval", choices=("cancel",))
     )
 
     assert paused_state is not None
     assert paused_state["status"] == "awaiting_clarification"
-    assert result["status"] == "cancelled"
-    assert result["final_answer"] == "Clarification/search was not approved."
+    assert result["status"] == "completed"
+    assert result["final_answer"] == "Grounded answer"
     assert "clarification_cancelled" in result["execution_history"]
+    assert "answer_generated" in result["execution_history"]
     assert CALLS["mcp"] == 0
+    assert CALLS["answer"] == 1
+
+
+def test_workflow_retries_hybrid_search_after_a_rewritten_query() -> None:
+    """A weak first retrieval must re-plan and search again before answering."""
+    _, result = asyncio.run(_run_fake_workflow("retry retrieval"))
+
+    assert result["status"] == "completed"
+    assert result["retrieval"]["status"] == "grounded"
+    assert result["evidence"] == [
+        {"chunk_id": "chunk-retry", "parent_id": "parent-retry"}
+    ]
+    assert CALLS["retrieval"] == 2
+    assert CALLS["answer"] == 1
+    assert result["execution_history"].count("pgvector_retrieval_started") == 2
 
 
 def test_direct_conversation_uses_no_retrieval_or_web_tool() -> None:

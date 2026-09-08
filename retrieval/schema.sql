@@ -27,6 +27,15 @@ CREATE TABLE IF NOT EXISTS figures (
     PRIMARY KEY (doc_id, id)
 );
 
+CREATE TABLE IF NOT EXISTS figure_images (
+    doc_id TEXT NOT NULL,
+    figure_id TEXT NOT NULL,
+    image_bytes BYTEA NOT NULL,
+    mime_type TEXT NOT NULL DEFAULT 'image/png',
+    PRIMARY KEY (doc_id, figure_id),
+    FOREIGN KEY (doc_id, figure_id) REFERENCES figures(doc_id, id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS tables (
     id TEXT NOT NULL,
     doc_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
@@ -153,3 +162,4 @@ CREATE INDEX IF NOT EXISTS user_facts_user_id_idx ON user_facts(user_id);
 CREATE INDEX IF NOT EXISTS user_sessions_user_id_idx ON user_sessions(user_id);
 CREATE INDEX IF NOT EXISTS user_sessions_document_ids_gin_idx ON user_sessions USING gin (document_ids);
 CREATE INDEX IF NOT EXISTS agent_tool_results_session_id_idx ON agent_tool_results(session_id);
+CREATE INDEX IF NOT EXISTS figure_images_doc_id_idx ON figure_images(doc_id);
