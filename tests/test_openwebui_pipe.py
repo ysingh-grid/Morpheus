@@ -246,6 +246,7 @@ def test_pipe_formats_source_citations_as_clickable_bubbles() -> None:
     answer = "Passed with 981 [Source: AWS Certified Cloud Practitioner.pdf, p. 1]."
     formatted = pipe._format_source_bubbles(answer)
 
+    assert "<sup" in formatted
     assert 'target="_blank"' in formatted
     assert 'href="http://localhost:8000/v1/documents/AWS%20Certified%20Cloud%20Practitioner.pdf/view#page=1"' in formatted
     assert 'title="Open AWS Certified Cloud Practitioner.pdf on page 1"' in formatted

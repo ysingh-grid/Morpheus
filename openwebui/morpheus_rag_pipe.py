@@ -207,15 +207,15 @@ class Pipe:
             encoded_doc = quote(raw_document)
             view_url = f"{view_base}/documents/{encoded_doc}/view#page={first_page}"
             return (
-                f' <a href="{view_url}" target="_blank" rel="noopener noreferrer" '
-                f'style="text-decoration: none; vertical-align: baseline;" '
+                f'<sup style="line-height: 0; vertical-align: baseline;"><a href="{view_url}" target="_blank" rel="noopener noreferrer" '
+                f'style="text-decoration: none;" '
                 f'title="Open {clean_name} on page {pages}">'
                 f'<span style="display: inline-flex; align-items: center; gap: 3px; '
                 f'font-size: 0.72rem; line-height: 1.1; padding: 2px 7px; margin: 0 2px; '
                 f'border-radius: 9999px; background: rgba(59, 130, 246, 0.12); '
                 f'color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.28); '
                 f'font-weight: 500; cursor: pointer; white-space: nowrap;">'
-                f'📄 {display_name} · p. {pages}</span></a>'
+                f'📄 {display_name} · p. {pages}</span></a></sup>'
             )
 
         return pattern.sub(replace_citation, answer)
