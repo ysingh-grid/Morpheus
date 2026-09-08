@@ -184,7 +184,7 @@ class Pipe:
         return re.sub(r"\s*\[\d+\](?=\s*(?:\[Source:|$|[.,;:]))", "", answer)
 
     def _format_source_bubbles(self, answer: str) -> str:
-        """Transform text citations like [Source: doc.pdf, p. 1] into compact clickable pill badges."""
+        """Transform text citations like [Source: doc.pdf, p. 1] into clean clickable markdown links."""
         pattern = re.compile(
             r"\[Source:\s*(?P<document>.+?),\s*pp?\.\s*(?P<pages>[0-9,\s\-–]+)\]",
             re.IGNORECASE,
@@ -206,19 +206,47 @@ class Pipe:
             view_base = self.valves.DOCUMENT_VIEW_BASE_URL.rstrip("/")
             encoded_doc = quote(raw_document)
             view_url = f"{view_base}/documents/{encoded_doc}/view#page={first_page}"
-            return (
-                f'<sup style="line-height: 0; vertical-align: baseline;"><a href="{view_url}" target="_blank" rel="noopener noreferrer" '
-                f'style="text-decoration: none;" '
-                f'title="Open {clean_name} on page {pages}">'
-                f'<span style="display: inline-flex; align-items: center; gap: 3px; '
-                f'font-size: 0.72rem; line-height: 1.1; padding: 2px 7px; margin: 0 2px; '
-                f'border-radius: 9999px; background: rgba(59, 130, 246, 0.12); '
-                f'color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.28); '
-                f'font-weight: 500; cursor: pointer; white-space: nowrap;">'
-                f'📄 {display_name} · p. {pages}</span></a></sup>'
-            )
+            return f" [📄 {display_name} · p. {pages}]({view_url})"
 
         return pattern.sub(replace_citation, answer)
+
+    async def _emit_sources(
+        self, emitter: EventEmitter | None, answer: str
+    ) -> None:
+        """Emit native Open WebUI source metadata cards for cited documents."""
+        if emitter is None:
+            return
+        pattern = re.compile(
+            r"\[Source:\s*(?P<document>.+?),\s*pp?\.\s*(?P<pages>[0-9,\s\-–]+)\]",
+            re.IGNORECASE,
+        )
+        seen: set[str] = set()
+        for match in pattern.finditer(answer):
+            raw_document = match.group("document").strip()
+            pages = match.group("pages").strip()
+            key = f"{raw_document}:{pages}"
+            if key in seen:
+                continue
+            seen.add(key)
+            first_page_match = re.search(r"\d+", pages)
+            first_page = first_page_match.group(0) if first_page_match else "1"
+            clean_name = re.sub(
+                r"^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}_", "", raw_document
+            )
+            view_base = self.valves.DOCUMENT_VIEW_BASE_URL.rstrip("/")
+            encoded_doc = quote(raw_document)
+            view_url = f"{view_base}/documents/{encoded_doc}/view#page={first_page}"
+            title = f"{clean_name} (p. {pages})"
+            await emitter(
+                {
+                    "type": "source",
+                    "data": {
+                        "source": {"name": title, "url": view_url},
+                        "document": [f"Cited passage from {clean_name}, page {pages}."],
+                        "metadata": [{"source": view_url, "name": title}],
+                    },
+                }
+            )
 
     @staticmethod
     def _http_json(
@@ -545,6 +573,7 @@ class Pipe:
                         done=True,
                     )
                     return "Morpheus completed without a final answer."
+                await self._emit_sources(__event_emitter__, answer)
                 await self._emit_status(
                     __event_emitter__, "Morpheus workflow completed.", done=True
                 )

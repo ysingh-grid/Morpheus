@@ -241,17 +241,14 @@ def test_pipe_removes_automatic_numeric_source_markers() -> None:
 
 
 def test_pipe_formats_source_citations_as_clickable_bubbles() -> None:
-    """Citations are transformed into compact, clickable pill links opening PDF pages in a new tab."""
+    """Citations are transformed into clean, clickable markdown links opening PDF pages in a new tab."""
     pipe = Pipe()
     answer = "Passed with 981 [Source: AWS Certified Cloud Practitioner.pdf, p. 1]."
     formatted = pipe._format_source_bubbles(answer)
 
-    assert "<sup" in formatted
-    assert 'target="_blank"' in formatted
-    assert 'href="http://localhost:8000/v1/documents/AWS%20Certified%20Cloud%20Practitioner.pdf/view#page=1"' in formatted
-    assert 'title="Open AWS Certified Cloud Practitioner.pdf on page 1"' in formatted
-    assert "AWS Certified Cloud Pr….pdf · p. 1" in formatted
-    assert "border-radius: 9999px" in formatted
+    assert "[📄 AWS Certified Cloud Pr….pdf · p. 1]" in formatted
+    assert "(http://localhost:8000/v1/documents/AWS%20Certified%20Cloud%20Practitioner.pdf/view#page=1)" in formatted
+    assert "<sup" not in formatted
 
 
 def test_pipe_handles_openwebui_utility_task_without_calling_gateway() -> None:
