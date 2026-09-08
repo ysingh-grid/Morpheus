@@ -128,14 +128,33 @@ def _document_lookup_mode(query: str) -> str:
     return "semantic"
 
 
+def _sanitize_conversation_context(text: str) -> str:
+    """Remove raw attachment tags, URL links, and boilerplate from prior turn text."""
+    cleaned = re.sub(r"<attached_files>.*?</attached_files>", "", text, flags=re.DOTALL)
+    cleaned = re.sub(r"<[^>]+>", " ", cleaned)
+    cleaned = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", cleaned)
+    return " ".join(cleaned.split()).strip()
+
+
 def _conversation_retrieval_context(state: AgentState, current_query: str) -> str:
     """Extract bounded prior-turn context for an otherwise underspecified search query."""
+    normalized_query = current_query.casefold()
+    is_structural_nav = bool(
+        re.search(
+            r"\b(?:last\s+page|final\s+page|first\s+page|page\s+\d+|figure\s+\d+|fig\.?\s*\d+|table\s+\d+)\b",
+            normalized_query,
+        )
+    )
+    if is_structural_nav and len(current_query.split()) > 3:
+        return ""
+
     messages = [*state.get("history", []), *state.get("messages", [])]
     context_parts: list[str] = []
     seen: set[tuple[str, str]] = set()
     for message in reversed(messages):
         role = str(message.get("role", "context"))
-        content = " ".join(str(message.get("content", "")).split())
+        raw_content = str(message.get("content", ""))
+        content = _sanitize_conversation_context(raw_content)
         if not content or content == current_query:
             continue
         if role == "system" and not content.startswith("Latest "):
@@ -144,10 +163,11 @@ def _conversation_retrieval_context(state: AgentState, current_query: str) -> st
         if key in seen:
             continue
         seen.add(key)
-        context_parts.append(f"{role}: {content}")
+        snippet = content[:200]
+        context_parts.append(f"{role}: {snippet}")
         if len(context_parts) == 2:
             break
-    return "\n".join(reversed(context_parts))[:700]
+    return "\n".join(reversed(context_parts))[:400]
 
 
 @traceable(name="scope_document_query", run_type="chain")
@@ -422,8 +442,11 @@ def _planned_action(state: AgentState, plan: dict[str, Any]) -> str:
     next_tool = _next_plan_action(state, plan)
     web_search_tool = default_web_search_tool()
     completed_tools = set(state.get("completed_tools", []))
+    has_tool_evidence = bool(state.get("retrieved_evidence") or state.get("mcp_results"))
 
     if state.get("clarification_needed") and not web_search_declined:
+        if state.get("context_sufficient") and has_tool_evidence and not next_tool:
+            return "generate_answer"
         if next_tool == "hybrid_search":
             return "hybrid_search"
         if next_tool == "mcp_search":
@@ -445,7 +468,6 @@ def _planned_action(state: AgentState, plan: dict[str, Any]) -> str:
     ):
         return "mcp_search"
 
-    has_tool_evidence = bool(state.get("retrieved_evidence") or state.get("mcp_results"))
     document_query = str(plan.get("document_query") or state.get("query") or "")
     if plan.get("document_only") and not has_tool_evidence:
         if hybrid_search_allowed(state, document_query):

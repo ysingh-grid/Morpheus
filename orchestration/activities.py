@@ -778,7 +778,7 @@ def verify_borderline_confidence_activity(
     """Use Gemini for borderline hits or mandatory document-only sufficiency checks."""
     if not force_verification and not _is_borderline_confidence(retrieval_response):
         return False
-    evidence = _load_evidence_by_references(evidence_references[:2])
+    evidence = _load_evidence_by_references(evidence_references[:5])
     if not evidence:
         return False
     completion = llm_client.beta.chat.completions.parse(

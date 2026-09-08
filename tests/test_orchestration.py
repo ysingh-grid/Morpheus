@@ -30,6 +30,7 @@ from orchestration.activities import (
     _page_grounded_child_text,
     _rewrite_source_citations,
     _source_citations_are_valid,
+    ContextSufficiency,
     execute_tool_activity,
     generate_direct_answer_activity,
     generate_answer_activity,
@@ -1709,3 +1710,31 @@ def test_completed_status_always_publishes_final_answer_atomically() -> None:
     state = asyncio.run(_observe_terminal_state_during_persistence())
 
     assert state["final_answer"] == "Conversational answer"
+
+
+def test_verify_borderline_confidence_loads_up_to_five_chunks() -> None:
+    """The verifier evaluates up to five evidence references instead of truncating at two."""
+    with patch("orchestration.activities._load_evidence_by_references", return_value=[{"text": "mock"}]) as load_mock:
+        with patch("orchestration.activities.llm_client.beta.chat.completions.parse") as parse_mock:
+            parse_mock.return_value = SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            parsed=ContextSufficiency(
+                                is_context_sufficient=True,
+                                reason="sufficient context",
+                            )
+                        )
+                    )
+                ]
+            )
+            refs = [{"chunk_id": f"chunk-{i}", "parent_id": f"parent-{i}"} for i in range(10)]
+            res = verify_borderline_confidence_activity(
+                query="test query",
+                retrieval_response={"confidence": {"reasons": ["vector distance"]}},
+                evidence_references=refs,
+                force_verification=True,
+            )
+            assert res is True
+            assert len(load_mock.call_args[0][0]) == 5
+

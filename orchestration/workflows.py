@@ -391,19 +391,25 @@ class AgentWorkflow:
             retrieval["status"] != "grounded"
             or not retrieval.get("confidence", {}).get("lexical_match", False)
         )
+        verification_evidence = merge_retrieved_evidence(
+            retrieval["evidence"], state.get("retrieved_evidence")
+        )
         context_sufficient: bool | None = None
         if retrieval["status"] == "clarification_needed" or force_document_check:
             try:
-                state["context_sufficient"] = await self._activity(
+                verified_sufficient = await self._activity(
                     verify_borderline_confidence_activity,
                     [
                         query,
                         retrieval,
-                        state["retrieved_evidence"],
+                        verification_evidence,
                         force_document_check,
                     ],
                     30,
                     2,
+                )
+                state["context_sufficient"] = verified_sufficient or bool(
+                    state.get("context_sufficient")
                 )
             except ActivityError:
                 state["context_sufficient"] = False

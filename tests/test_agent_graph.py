@@ -10,8 +10,11 @@ import pytest
 
 from agent.graph import compile_agent_graph, get_agent
 from agent.nodes import (
+    _conversation_retrieval_context,
     _create_agent_plan,
     _fallback_plan,
+    _planned_action,
+    _sanitize_conversation_context,
     _scope_document_query,
     planner_node,
     verify_groundedness_node,
@@ -527,3 +530,60 @@ def test_create_agent_plan_sends_tool_observations_when_replanning() -> None:
     assert payload["retrieval_attempt_count"] == 1
     assert payload["remaining_retrieval_shots"] == 2
     assert plan.tool_sequence == []
+
+
+def test_planned_action_generates_answer_when_grounded_evidence_gathered_despite_prior_clarification_flag() -> None:
+    """A completed multi-shot retrieval with grounded evidence must generate an answer instead of not_found."""
+    state = {
+        "query": "tell me about the diagram in the last page",
+        "clarification_needed": True,
+        "context_sufficient": True,
+        "retrieved_evidence": [{"chunk_id": "chunk-1", "parent_id": "parent-1"}],
+        "tool_observations": [
+            {
+                "tool": "hybrid_search",
+                "status": "grounded",
+                "document_query": "diagram last page",
+                "chunk_ids": ["chunk-1"],
+            }
+        ],
+        "completed_tools": ["hybrid_search"],
+    }
+    plan = {
+        "intent": "document",
+        "tool_sequence": [],
+        "clarification_question": "",
+        "document_only": True,
+        "reason": "Retrieved enough context across multiple shots.",
+    }
+    action = _planned_action(state, plan)
+    assert action == "generate_answer"
+
+
+def test_conversation_retrieval_context_skips_structural_page_queries() -> None:
+    """Queries targeting a specific page or figure do not get diluted by prior conversation context."""
+    state = {
+        "query": "tell me about the diagram in the last page",
+        "messages": [
+            {
+                "role": "user",
+                "content": '<attached_files><file name="doc.pdf"/></attached_files>',
+            },
+            {
+                "role": "assistant",
+                "content": "Hello! The architecture consists of encoder and decoder stacks.",
+            },
+        ],
+    }
+    context = _conversation_retrieval_context(state, "tell me about the diagram in the last page")
+    assert context == ""
+
+
+def test_sanitize_conversation_context_removes_attachment_xml_and_urls() -> None:
+    """Sanitizer strips XML file attachment blocks and Markdown URLs."""
+    raw_user = '<attached_files>\n<file id="abc" name="paper.pdf"/>\n</attached_files>'
+    assert _sanitize_conversation_context(raw_user) == ""
+
+    raw_assistant = "See [📄 paper.pdf · p. 3](http://localhost:8000/view#page=3) for details."
+    assert _sanitize_conversation_context(raw_assistant) == "See 📄 paper.pdf · p. 3 for details."
+
