@@ -15,6 +15,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from pydantic import BaseModel, Field
@@ -33,6 +34,10 @@ class Pipe:
         MORPHEUS_API_BASE_URL: str = Field(
             default="http://host.docker.internal:8000/v1",
             description="Morpheus gateway URL reachable from the Open WebUI container.",
+        )
+        DOCUMENT_VIEW_BASE_URL: str = Field(
+            default="http://localhost:8000/v1",
+            description="Morpheus gateway URL reachable from the user's browser for PDF viewing.",
         )
         REQUEST_TIMEOUT_SECONDS: int = Field(default=1800, ge=1, le=3600)
         POLL_INTERVAL_SECONDS: float = Field(default=1.0, ge=0.1, le=30.0)
@@ -177,6 +182,43 @@ class Pipe:
     def _remove_automatic_source_markers(answer: str) -> str:
         """Remove legacy Open WebUI numeric markers from a Morpheus-owned answer."""
         return re.sub(r"\s*\[\d+\](?=\s*(?:\[Source:|$|[.,;:]))", "", answer)
+
+    def _format_source_bubbles(self, answer: str) -> str:
+        """Transform text citations like [Source: doc.pdf, p. 1] into compact clickable pill badges."""
+        pattern = re.compile(
+            r"\[Source:\s*(?P<document>.+?),\s*pp?\.\s*(?P<pages>[0-9,\s\-–]+)\]",
+            re.IGNORECASE,
+        )
+
+        def replace_citation(match: re.Match[str]) -> str:
+            raw_document = match.group("document").strip()
+            pages = match.group("pages").strip()
+            first_page_match = re.search(r"\d+", pages)
+            first_page = first_page_match.group(0) if first_page_match else "1"
+            clean_name = re.sub(
+                r"^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}_", "", raw_document
+            )
+            display_name = clean_name
+            if len(display_name) > 30:
+                stem = Path(clean_name).stem
+                suffix = Path(clean_name).suffix
+                display_name = f"{stem[:22]}…{suffix}" if len(stem) > 22 else clean_name
+            view_base = self.valves.DOCUMENT_VIEW_BASE_URL.rstrip("/")
+            encoded_doc = quote(raw_document)
+            view_url = f"{view_base}/documents/{encoded_doc}/view#page={first_page}"
+            return (
+                f' <a href="{view_url}" target="_blank" rel="noopener noreferrer" '
+                f'style="text-decoration: none; vertical-align: baseline;" '
+                f'title="Open {clean_name} on page {pages}">'
+                f'<span style="display: inline-flex; align-items: center; gap: 3px; '
+                f'font-size: 0.72rem; line-height: 1.1; padding: 2px 7px; margin: 0 2px; '
+                f'border-radius: 9999px; background: rgba(59, 130, 246, 0.12); '
+                f'color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.28); '
+                f'font-weight: 500; cursor: pointer; white-space: nowrap;">'
+                f'📄 {display_name} · p. {pages}</span></a>'
+            )
+
+        return pattern.sub(replace_citation, answer)
 
     @staticmethod
     def _http_json(
@@ -506,7 +548,9 @@ class Pipe:
                 await self._emit_status(
                     __event_emitter__, "Morpheus workflow completed.", done=True
                 )
-                return self._remove_automatic_source_markers(answer)
+                return self._format_source_bubbles(
+                    self._remove_automatic_source_markers(answer)
+                )
             elif status in {
                 "not_found",
                 "cancelled",
@@ -518,7 +562,10 @@ class Pipe:
                 await self._emit_status(
                     __event_emitter__, f"Morpheus workflow ended: {status}.", done=True
                 )
-                return answer or f"Morpheus workflow ended with status: {status}."
+                formatted = self._format_source_bubbles(
+                    self._remove_automatic_source_markers(answer)
+                )
+                return formatted or f"Morpheus workflow ended with status: {status}."
             else:
                 await self._emit_status(
                     __event_emitter__, f"Morpheus workflow status: {status}."

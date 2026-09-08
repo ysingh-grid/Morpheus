@@ -683,3 +683,32 @@ def test_upload_skips_preprocessing_when_content_id_is_already_ingested(
     process.assert_not_called()
     ingest.assert_not_called()
     attach.assert_called_once_with("usr_local", "sess_default", ["existing-document"])
+
+
+async def _view_document(identifier: str) -> httpx.Response:
+    """Fetch inline document PDF view through the ASGI application."""
+    async with _client() as client:
+        return await client.get(f"/v1/documents/{identifier}/view")
+
+
+def test_view_document_returns_inline_pdf_file(tmp_path: Path) -> None:
+    """A found document is served with application/pdf and inline disposition."""
+    pdf_file = tmp_path / "sample.pdf"
+    pdf_file.write_bytes(b"%PDF-1.7 sample data")
+
+    with patch("interfaces.openai_api.get_document_source_path", return_value=pdf_file):
+        response = asyncio.run(_view_document("sample.pdf"))
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.headers["content-disposition"] == 'inline; filename="sample.pdf"'
+    assert response.content == b"%PDF-1.7 sample data"
+
+
+def test_view_document_returns_404_when_missing() -> None:
+    """Missing document identifier returns HTTP 404."""
+    with patch("interfaces.openai_api.get_document_source_path", return_value=None):
+        response = asyncio.run(_view_document("missing.pdf"))
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["error"]["type"] == "not_found"

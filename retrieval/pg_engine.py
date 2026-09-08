@@ -437,6 +437,40 @@ def get_full_table(doc_id: str, table_id: str) -> dict[str, Any] | None:
             }
 
 
+def get_document_source_path(document_identifier: str) -> Path | None:
+    """Find local document file path by document ID or filename."""
+    cleaned = document_identifier.strip()
+    if not cleaned:
+        return None
+    psycopg = _psycopg()
+    with psycopg.connect(_database_url()) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT source_path
+                FROM documents
+                WHERE id = %s
+                   OR source_path ILIKE %s
+                   OR source_path ILIKE %s
+                ORDER BY (id = %s) DESC, id DESC
+                LIMIT 1
+                """,
+                (
+                    cleaned,
+                    f"%/{cleaned}",
+                    f"%{cleaned}%",
+                    cleaned,
+                ),
+            )
+            row = cursor.fetchone()
+            if row is None or not row[0]:
+                return None
+            path = Path(str(row[0]))
+            if not path.is_absolute():
+                path = Path.cwd() / path
+            return path if path.is_file() else None
+
+
 def _file_sha256(file_path: Path) -> str:
     """Hash a local document without loading the complete file into memory."""
     digest = hashlib.sha256()

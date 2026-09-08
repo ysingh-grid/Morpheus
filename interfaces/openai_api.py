@@ -14,6 +14,7 @@ from typing import Any, Callable, Literal
 from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from langsmith import traceable
 from temporalio.client import Client
@@ -25,6 +26,7 @@ from orchestration.workflows import DocumentIngestionWorkflow
 from retrieval.pg_engine import (
     attach_documents_to_session,
     document_ingestion_stats,
+    get_document_source_path,
     ingest_bundle,
 )
 from security import guardrails
@@ -656,6 +658,29 @@ async def get_document_upload_job(job_id: str) -> DocumentUploadJobResponse:
     if len(progress_states) == 1:
         return DocumentUploadJobResponse(job_id=job_id, **progress_states[0])
     return _aggregate_ingestion_progress(job_id, list(progress_states))
+
+
+@app.get("/v1/documents/{document_identifier}/view")
+async def view_document(document_identifier: str) -> FileResponse:
+    """Serve an uploaded PDF inline for direct in-browser page viewing."""
+    path = get_document_source_path(document_identifier)
+    if path is None or not path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": {
+                    "message": f"Document '{document_identifier}' was not found.",
+                    "type": "not_found",
+                }
+            },
+        )
+    return FileResponse(
+        path=path,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{path.name}"',
+        },
+    )
 
 
 @app.get("/v1/models")

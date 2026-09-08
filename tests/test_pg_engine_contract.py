@@ -1,5 +1,6 @@
 """Static contract checks for the pgvector retrieval implementation."""
 
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -9,6 +10,7 @@ from retrieval.pg_engine import (
     _embed,
     _matched_table_text_for_reranking,
     _vector_literal,
+    get_document_source_path,
     get_full_table,
 )
 
@@ -111,4 +113,23 @@ def test_get_full_table_queries_by_composite_key() -> None:
     assert "FROM tables" in statement
     assert "WHERE doc_id = %s AND id = %s" in statement
     assert params == ("doc-123", "table-456")
+
+
+def test_get_document_source_path_resolves_existing_file(tmp_path: Path) -> None:
+    """Document source path resolves to a valid Path object when the file exists."""
+    doc_file = tmp_path / "test.pdf"
+    doc_file.write_bytes(b"%PDF-1.7 data")
+    cursor = MagicMock()
+    cursor.fetchone.return_value = (str(doc_file),)
+    connection = MagicMock()
+    connection.cursor.return_value.__enter__.return_value = cursor
+    psycopg = MagicMock()
+    psycopg.connect.return_value.__enter__.return_value = connection
+
+    with patch("retrieval.pg_engine._psycopg", return_value=psycopg):
+        resolved = get_document_source_path("doc-123")
+
+    assert resolved == doc_file
+    assert resolved.is_file()
+
 
