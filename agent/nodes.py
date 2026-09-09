@@ -383,6 +383,8 @@ def _create_agent_plan(state: AgentState) -> AgentPlan:
             plan.clarification_question = (
                 "Please attach the document you want me to use in this chat."
             )
+    if _explicit_document_request(state.get("query", "")):
+        plan.document_only = True
     plan.tool_sequence = unique_tools
     web_search_tool = default_web_search_tool()
     if state.get("user_choice") == "cancel" and web_search_tool:
@@ -439,13 +441,22 @@ def _planned_action(state: AgentState, plan: dict[str, Any]) -> str:
     if state.get("verification_pending"):
         return "verify_groundedness"
     web_search_declined = state.get("user_choice") == "cancel"
+    has_tool_evidence = bool(state.get("retrieved_evidence") or state.get("mcp_results"))
+    document_query = str(plan.get("document_query") or state.get("query") or "")
     if plan.get("intent") == "clarify" and not web_search_declined:
+        if (
+            plan.get("document_only")
+            and not has_tool_evidence
+            and not state.get("completed_tools")
+            and state.get("document_ids")
+            and hybrid_search_allowed(state, document_query)
+        ):
+            return "hybrid_search"
         return "ask_clarification"
 
     next_tool = _next_plan_action(state, plan)
     web_search_tool = default_web_search_tool()
     completed_tools = set(state.get("completed_tools", []))
-    has_tool_evidence = bool(state.get("retrieved_evidence") or state.get("mcp_results"))
 
     if state.get("clarification_needed") and not web_search_declined:
         if state.get("context_sufficient") and has_tool_evidence and not next_tool:

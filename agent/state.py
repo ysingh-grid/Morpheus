@@ -188,6 +188,7 @@ class AgentState(TypedDict, total=False):
     max_turns: int
     verification_pending: bool
     history_injected: bool
+    llm_model: str
     next_action: Literal[
         "hybrid_search",
         "verify_groundedness",

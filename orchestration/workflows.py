@@ -64,6 +64,7 @@ class AgentWorkflow:
         self.user_choice: str | None = None
         self.status = "created"
         self.final_answer = ""
+        self.llm_model = ""
         self.execution_history: list[str] = []
 
     @workflow.signal
@@ -122,12 +123,13 @@ class AgentWorkflow:
     ) -> dict[str, Any]:
         """Execute bounded decisions, isolated tools, and durable HITL resumption."""
         session_id = session_id or workflow.info().workflow_id
+        self.llm_model = str(llm_model or "")
         state: dict[str, Any] = {
             "query": query,
             "user_id": user_id,
             "session_id": session_id,
             "messages": messages or [{"role": "user", "content": query}],
-            "llm_model": str(llm_model or ""),
+            "llm_model": self.llm_model,
             "document_ids": [],
             "attached_documents": [],
             "retrieved_evidence": [],
@@ -166,7 +168,9 @@ class AgentWorkflow:
             self.status = "reasoning"
             self.execution_history.append(f"agent_turn:{state['iteration_count']}")
             try:
-                state = await self._activity(run_agent_graph_activity, [state], 10, 1)
+                state = await self._activity(run_agent_graph_activity, [state], 60, 2)
+                if self.llm_model:
+                    state["llm_model"] = self.llm_model
             except ActivityError:
                 self.status = "agent_decision_failed"
                 self.execution_history.append("agent_decision_failed")
@@ -391,21 +395,22 @@ class AgentWorkflow:
         verification_evidence = merge_retrieved_evidence(
             retrieval["evidence"], state.get("retrieved_evidence")
         )
+        model_name = self.llm_model or str(state.get("llm_model") or "")
         verify_args: list[Any] = [
             query,
             retrieval,
             verification_evidence,
             force_document_check,
         ]
-        if state.get("llm_model"):
-            verify_args.append(state["llm_model"])
+        if model_name:
+            verify_args.append(model_name)
         context_sufficient: bool | None = None
         if retrieval["status"] == "clarification_needed" or force_document_check:
             try:
                 verified_sufficient = await self._activity(
                     verify_borderline_confidence_activity,
                     verify_args,
-                    30,
+                    60,
                     2,
                 )
                 state["context_sufficient"] = verified_sufficient or bool(
@@ -502,19 +507,20 @@ class AgentWorkflow:
     ) -> None:
         """Generate a grounded answer from accumulated evidence."""
         self.status = "generating_answer"
+        model_name = self.llm_model or str(state.get("llm_model") or "")
         answer_args: list[Any] = [
             query,
             state["retrieved_evidence"],
             state["mcp_results"],
             state["messages"],
         ]
-        if state.get("llm_model"):
-            answer_args.append(state["llm_model"])
+        if model_name:
+            answer_args.append(model_name)
         try:
             state["final_answer"] = await self._activity(
                 generate_answer_activity,
                 answer_args,
-                45,
+                180,
                 2,
             )
         except ActivityError:
@@ -531,14 +537,15 @@ class AgentWorkflow:
         """Generate a tool-free conversational answer."""
         self.status = "generating_answer"
         self.execution_history.append("direct_answer_started")
+        model_name = self.llm_model or str(state.get("llm_model") or "")
         direct_args: list[Any] = [query, state["messages"], state["tool_errors"]]
-        if state.get("llm_model"):
-            direct_args.append(state["llm_model"])
+        if model_name:
+            direct_args.append(model_name)
         try:
             state["final_answer"] = await self._activity(
                 generate_direct_answer_activity,
                 direct_args,
-                45,
+                120,
                 2,
             )
         except ActivityError:
