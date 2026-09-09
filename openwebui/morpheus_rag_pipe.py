@@ -624,11 +624,15 @@ class Pipe:
                     self._remove_automatic_source_markers(answer)
                 )
             elif status in {
+                "clarification_needed",
                 "not_found",
                 "cancelled",
+                "timed_out",
                 "turn_limit_reached",
                 "retrieval_failed",
                 "answer_generation_failed",
+                "history_load_failed",
+                "agent_decision_failed",
             }:
                 answer = str(state.get("final_answer", "")).strip()
                 await self._emit_status(

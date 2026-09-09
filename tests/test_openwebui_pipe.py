@@ -319,3 +319,31 @@ def test_pipe_registers_both_cloud_and_local_models() -> None:
     assert "morpheus-rag-agent" in ids
     assert "morpheus-local" in ids
 
+
+def test_pipe_terminates_immediately_on_clarification_needed() -> None:
+    """A workflow ending with clarification_needed returns the question without polling loops."""
+    pipe = Pipe()
+    pipe.valves.POLL_INTERVAL_SECONDS = 0.01
+    pipe._request_json = AsyncMock(
+        side_effect=[
+            {"workflow_id": "wf-clarify"},
+            {
+                "status": "clarification_needed",
+                "final_answer": "You've attached a file. What would you like to do with it?",
+            },
+        ]
+    )
+    emitter = AsyncMock()
+
+    result = asyncio.run(
+        pipe.pipe(
+            _body("tell me about this"),
+            __user__={"id": "user-1"},
+            __event_emitter__=emitter,
+        )
+    )
+
+    assert result == "You've attached a file. What would you like to do with it?"
+    assert pipe._request_json.await_count == 2
+
+

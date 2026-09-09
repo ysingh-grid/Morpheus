@@ -552,7 +552,9 @@ class AgentWorkflow:
     async def _act_clarification(self, state: dict[str, Any]) -> bool:
         """Document-only misses stay terminal; genuine clarification questions are returned to user; otherwise pause for Tavily approval."""
         plan = state.get("agent_plan", {})
-        if plan.get("document_only") and state.get("clarification_needed"):
+        if plan.get("document_only") and (
+            state.get("clarification_needed") or plan.get("intent") == "clarify"
+        ):
             self._publish_terminal_state(state, "not_found")
             self.execution_history.append("retrieval_not_found")
             return True
