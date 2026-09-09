@@ -56,6 +56,7 @@ def test_pipe_uploads_pdf_then_returns_completed_workflow_answer(
             "user": "user-1",
             "chat_id": "chat-123",
             "messages": [{"role": "user", "content": "What does the report say?"}],
+            "model": "morpheus-rag-agent",
         },
     )
     assert emitter.await_count >= 3
@@ -308,3 +309,13 @@ def test_pipe_unwraps_openwebui_document_context_before_agent_execution() -> Non
     assert pipe._request_json.await_args_list[0].args[2]["messages"][-1]["content"] == (
         "What is this document about?"
     )
+
+
+def test_pipe_registers_both_cloud_and_local_models() -> None:
+    """The pipe exposes selectable models for cloud Gemini and local Gemma."""
+    pipe = Pipe()
+    available = pipe.pipes()
+    ids = [model["id"] for model in available]
+    assert "morpheus-rag-agent" in ids
+    assert "morpheus-local" in ids
+

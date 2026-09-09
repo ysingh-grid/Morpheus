@@ -31,16 +31,13 @@ async def _get_models() -> httpx.Response:
 
 
 def test_list_models() -> None:
-    """The gateway exposes its one OpenAI-compatible model."""
+    """The gateway exposes both cloud and local OpenAI-compatible models."""
     response = asyncio.run(_get_models())
 
     assert response.status_code == 200
-    assert response.json() == {
-        "object": "list",
-        "data": [
-            {"id": "local-rag-agent", "object": "model", "owned_by": "local-rag-agent"}
-        ],
-    }
+    ids = [model["id"] for model in response.json()["data"]]
+    assert "local-rag-agent" in ids
+    assert "morpheus-local" in ids
 
 
 def test_workflow_id_is_unique_for_each_chat_turn() -> None:
@@ -311,6 +308,7 @@ def test_chat_completion_success() -> None:
         "usr_123",
         "sess_456",
         [{"role": "user", "content": "What were IFC's total assets in 2024?"}],
+        "ignored-by-local-gateway",
     ]
 
 
@@ -756,4 +754,18 @@ def test_view_figure_image_returns_404_when_missing() -> None:
 
     assert response.status_code == 404
     assert response.json()["detail"]["error"]["type"] == "not_found"
+
+
+def test_core_config_routes_to_local_llm_when_requested() -> None:
+    """Model strings containing local cues route to the local OpenAI endpoint."""
+    from core.config import is_local_model, get_llm_model_name
+
+    assert is_local_model("morpheus-local") is True
+    assert is_local_model("google/gemma-4-12b") is True
+    assert is_local_model("morpheus-gemini") is False
+    assert is_local_model(None) is False
+
+    assert get_llm_model_name("morpheus-local") == "google/gemma-4-12b"
+    assert get_llm_model_name("gemini-default") == "gemini-2.5-flash"
+
 

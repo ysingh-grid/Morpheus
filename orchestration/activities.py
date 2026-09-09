@@ -24,7 +24,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 from langsmith import trace, traceable
 
-from core.config import DEFAULT_MODEL, llm_client
+from core.config import DEFAULT_MODEL, get_llm_client, get_llm_model_name, llm_client
 from ingestion.doc_processor import (
     document_content_sha256,
     document_id_for_file,
@@ -775,15 +775,18 @@ def verify_borderline_confidence_activity(
     retrieval_response: dict[str, Any],
     evidence_references: list[dict[str, Any]],
     force_verification: bool = False,
+    model_name: str | None = None,
 ) -> bool:
-    """Use Gemini for borderline hits or mandatory document-only sufficiency checks."""
+    """Evaluate context sufficiency for borderline hits or mandatory document-only checks."""
     if not force_verification and not _is_borderline_confidence(retrieval_response):
         return False
     evidence = _load_evidence_by_references(evidence_references[:5])
     if not evidence:
         return False
-    completion = llm_client.beta.chat.completions.parse(
-        model=DEFAULT_MODEL,
+    client = get_llm_client(model_name)
+    chosen_model = get_llm_model_name(model_name)
+    completion = client.beta.chat.completions.parse(
+        model=chosen_model,
         response_format=ContextSufficiency,
         messages=[
             {
@@ -1319,6 +1322,7 @@ def generate_answer_activity(
     evidence_references: list[dict[str, Any]],
     mcp_result_references: list[dict[str, Any]],
     messages: list[dict[str, Any]],
+    model_name: str | None = None,
 ) -> str:
     """Hydrate selected tool results and let the agent synthesize one answer."""
     if not query.strip():
@@ -1397,18 +1401,20 @@ def generate_answer_activity(
             "content": user_content,
         },
     ]
-    completion = llm_client.chat.completions.create(
-        model=DEFAULT_MODEL,
+    client = get_llm_client(model_name)
+    chosen_model = get_llm_model_name(model_name)
+    completion = client.chat.completions.create(
+        model=chosen_model,
         messages=messages_payload,
     )
     answer = completion.choices[0].message.content
     if not answer:
-        raise ValueError("Gemini did not return an answer.")
+        raise ValueError("Model did not return an answer.")
     if allowed_pages_by_name:
         rewritten = _rewrite_source_citations(answer, allowed_pages_by_name)
         if not _source_citations_are_valid(rewritten, allowed_pages_by_name):
-            repair = llm_client.chat.completions.create(
-                model=DEFAULT_MODEL,
+            repair = client.chat.completions.create(
+                model=chosen_model,
                 messages=[
                     *messages_payload,
                     {"role": "assistant", "content": answer},
@@ -1442,6 +1448,7 @@ def generate_direct_answer_activity(
     query: str,
     messages: list[dict[str, Any]],
     tool_errors: dict[str, str],
+    model_name: str | None = None,
 ) -> str:
     """Let the central agent answer conversationally without forcing a tool call."""
     if not query.strip():
@@ -1458,8 +1465,10 @@ def generate_direct_answer_activity(
         if isinstance(message, dict)
         and not str(message.get("content", "")).startswith("Known user fact")
     ][-12:]
-    completion = llm_client.chat.completions.create(
-        model=DEFAULT_MODEL,
+    client = get_llm_client(model_name)
+    chosen_model = get_llm_model_name(model_name)
+    completion = client.chat.completions.create(
+        model=chosen_model,
         messages=[
             {
                 "role": "system",

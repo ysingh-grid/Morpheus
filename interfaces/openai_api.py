@@ -457,18 +457,22 @@ def _process_saved_documents(
     return results
 
 
+LOCAL_MODEL_ID = "morpheus-local"
+
+
 async def _start_agent_workflow(
     latest_query: str,
     user_id: str,
     session_id: str,
     sanitized_messages: list[dict[str, Any]],
+    model_name: str = "",
 ) -> tuple[Any, str]:
     """Start one durable agent workflow and return its handle and stable identifier."""
     workflow_id = _workflow_id(user_id, session_id)
     client = await Client.connect(TEMPORAL_ADDRESS)
     handle = await client.start_workflow(
         WORKFLOW_TYPE,
-        args=[latest_query, user_id, session_id, sanitized_messages],
+        args=[latest_query, user_id, session_id, sanitized_messages, model_name],
         id=workflow_id,
         task_queue=TASK_QUEUE,
     )
@@ -750,10 +754,13 @@ async def view_figure_image(doc_id: str, figure_id: str) -> Response:
 
 @app.get("/v1/models")
 async def list_models() -> dict[str, Any]:
-    """Return the single OpenAI-compatible model exposed by this service."""
+    """Return the OpenAI-compatible models exposed by this service."""
     return {
         "object": "list",
-        "data": [{"id": MODEL_ID, "object": "model", "owned_by": MODEL_ID}],
+        "data": [
+            {"id": MODEL_ID, "object": "model", "owned_by": "morpheus-gemini"},
+            {"id": LOCAL_MODEL_ID, "object": "model", "owned_by": "morpheus-local"},
+        ],
     }
 
 
@@ -767,15 +774,18 @@ async def chat_completions(body: dict[str, Any]) -> dict[str, Any]:
             status_code=422,
             detail={"error": {"message": "messages must be a list."}},
         )
-    _requested_model = body.get("model", MODEL_ID)
-    del _requested_model
+    requested_model = str(body.get("model") or MODEL_ID)
     user_id = _resolve_user_id(body.get("user"))
     session_id = str(body.get("chat_id") or body.get("id", "sess_default"))
     latest_query, sanitized_messages = _sanitize_messages(messages)
 
     try:
         handle, workflow_id = await _start_agent_workflow(
-            latest_query, user_id, session_id, sanitized_messages
+            latest_query,
+            user_id,
+            session_id,
+            sanitized_messages,
+            model_name=requested_model,
         )
         result = await handle.result()
     except Exception as error:
@@ -793,11 +803,13 @@ async def chat_completions(body: dict[str, Any]) -> dict[str, Any]:
         ) from error
 
     final_answer = str(result.get("final_answer", ""))
+    exposed_models = {MODEL_ID, LOCAL_MODEL_ID}
+    response_model = requested_model if requested_model in exposed_models else MODEL_ID
     return {
         "id": f"chatcmpl-{session_id}",
         "object": "chat.completion",
         "created": int(time.time()),
-        "model": MODEL_ID,
+        "model": response_model,
         "choices": [
             {
                 "index": 0,
@@ -818,13 +830,18 @@ async def start_chat_workflow(body: dict[str, Any]) -> WorkflowStateResponse:
             status_code=422,
             detail={"error": {"message": "messages must be a list."}},
         )
+    requested_model = str(body.get("model") or MODEL_ID)
     user_id = _resolve_user_id(body.get("user"))
     session_id = str(body.get("chat_id") or body.get("id", "sess_default"))
     latest_query, sanitized_messages = _sanitize_messages(messages)
 
     try:
         _, workflow_id = await _start_agent_workflow(
-            latest_query, user_id, session_id, sanitized_messages
+            latest_query,
+            user_id,
+            session_id,
+            sanitized_messages,
+            model_name=requested_model,
         )
     except Exception as error:
         logger.exception(

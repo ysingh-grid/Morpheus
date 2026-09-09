@@ -17,7 +17,7 @@ from agent.state import (
     hybrid_search_allowed,
     retrieval_attempt_count,
 )
-from core.config import DEFAULT_MODEL, llm_client
+from core.config import DEFAULT_MODEL, get_llm_client, get_llm_model_name, llm_client
 from orchestration.mcp_client import default_web_search_tool, registered_tool_specs
 
 logger = logging.getLogger(__name__)
@@ -303,8 +303,11 @@ def _create_agent_plan(state: AgentState) -> AgentPlan:
         if observations
         else ""
     )
-    completion = llm_client.beta.chat.completions.parse(
-        model=DEFAULT_MODEL,
+    model_override = state.get("llm_model")
+    client = get_llm_client(model_override)
+    chosen_model = get_llm_model_name(model_override)
+    completion = client.beta.chat.completions.parse(
+        model=chosen_model,
         response_format=AgentPlan,
         messages=[
             {

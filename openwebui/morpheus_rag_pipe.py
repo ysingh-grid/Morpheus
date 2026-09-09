@@ -49,8 +49,11 @@ class Pipe:
         self._uploaded_attachments_by_chat: dict[str, set[str]] = {}
 
     def pipes(self) -> list[dict[str, str]]:
-        """Register this Pipe as a selectable model in Open WebUI."""
-        return [{"id": "morpheus-rag-agent", "name": "Morpheus RAG Agent"}]
+        """Register selectable models in Open WebUI."""
+        return [
+            {"id": "morpheus-rag-agent", "name": "Morpheus (Gemini 2.5 Flash)"},
+            {"id": "morpheus-local", "name": "Morpheus (Local Gemma 4 12B)"},
+        ]
 
     @staticmethod
     def _content_to_text(content: Any) -> str:
@@ -512,11 +515,17 @@ class Pipe:
         await self._emit_status(
             __event_emitter__, "Morpheus is deciding how to respond…"
         )
+        requested_model = str(body.get("model") or "morpheus-rag-agent")
         try:
             workflow = await self._request_json(
                 "POST",
                 "/chat/workflows",
-                {"user": user_id, "chat_id": session_id, "messages": messages},
+                {
+                    "user": user_id,
+                    "chat_id": session_id,
+                    "messages": messages,
+                    "model": requested_model,
+                },
             )
         except RuntimeError as error:
             return f"Morpheus workflow could not start: {error}"

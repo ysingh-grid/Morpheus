@@ -118,6 +118,7 @@ class AgentWorkflow:
         user_id: str,
         session_id: str | None = None,
         messages: list[dict[str, Any]] | None = None,
+        llm_model: str | None = None,
     ) -> dict[str, Any]:
         """Execute bounded decisions, isolated tools, and durable HITL resumption."""
         session_id = session_id or workflow.info().workflow_id
@@ -126,6 +127,7 @@ class AgentWorkflow:
             "user_id": user_id,
             "session_id": session_id,
             "messages": messages or [{"role": "user", "content": query}],
+            "llm_model": str(llm_model or ""),
             "document_ids": [],
             "attached_documents": [],
             "retrieved_evidence": [],
@@ -389,17 +391,20 @@ class AgentWorkflow:
         verification_evidence = merge_retrieved_evidence(
             retrieval["evidence"], state.get("retrieved_evidence")
         )
+        verify_args: list[Any] = [
+            query,
+            retrieval,
+            verification_evidence,
+            force_document_check,
+        ]
+        if state.get("llm_model"):
+            verify_args.append(state["llm_model"])
         context_sufficient: bool | None = None
         if retrieval["status"] == "clarification_needed" or force_document_check:
             try:
                 verified_sufficient = await self._activity(
                     verify_borderline_confidence_activity,
-                    [
-                        query,
-                        retrieval,
-                        verification_evidence,
-                        force_document_check,
-                    ],
+                    verify_args,
                     30,
                     2,
                 )
@@ -497,15 +502,18 @@ class AgentWorkflow:
     ) -> None:
         """Generate a grounded answer from accumulated evidence."""
         self.status = "generating_answer"
+        answer_args: list[Any] = [
+            query,
+            state["retrieved_evidence"],
+            state["mcp_results"],
+            state["messages"],
+        ]
+        if state.get("llm_model"):
+            answer_args.append(state["llm_model"])
         try:
             state["final_answer"] = await self._activity(
                 generate_answer_activity,
-                [
-                    query,
-                    state["retrieved_evidence"],
-                    state["mcp_results"],
-                    state["messages"],
-                ],
+                answer_args,
                 45,
                 2,
             )
@@ -523,10 +531,13 @@ class AgentWorkflow:
         """Generate a tool-free conversational answer."""
         self.status = "generating_answer"
         self.execution_history.append("direct_answer_started")
+        direct_args: list[Any] = [query, state["messages"], state["tool_errors"]]
+        if state.get("llm_model"):
+            direct_args.append(state["llm_model"])
         try:
             state["final_answer"] = await self._activity(
                 generate_direct_answer_activity,
-                [query, state["messages"], state["tool_errors"]],
+                direct_args,
                 45,
                 2,
             )

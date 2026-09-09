@@ -1047,6 +1047,7 @@ def _verify(
     _response: dict[str, Any],
     _references: list[dict[str, Any]],
     _force_verification: bool,
+    *_args: Any,
 ) -> bool:
     """Mark only the named test query as sufficient local context."""
     CALLS["verify"] += 1
@@ -1091,6 +1092,7 @@ def _answer(
     _evidence_references: list[dict[str, Any]],
     _mcp_references: list[dict[str, Any]],
     _messages: list[dict[str, Any]],
+    *_args: Any,
 ) -> str:
     """Return a deterministic answer after the workflow selects its evidence."""
     CALLS["answer"] += 1
@@ -1102,6 +1104,7 @@ def _direct_answer(
     _query: str,
     _messages: list[dict[str, Any]],
     _tool_errors: dict[str, str],
+    *_args: Any,
 ) -> str:
     """Return a deterministic tool-free conversational response."""
     CALLS["direct_answer"] += 1
