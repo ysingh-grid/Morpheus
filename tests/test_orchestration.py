@@ -30,6 +30,7 @@ from orchestration.activities import (
     _page_grounded_child_text,
     _rewrite_source_citations,
     _source_citations_are_valid,
+    _load_evidence_by_references,
     ContextSufficiency,
     execute_tool_activity,
     generate_direct_answer_activity,
@@ -1754,5 +1755,60 @@ def test_clarify_intent_returns_question_without_web_search_prompt() -> None:
     assert result["final_answer"] == "Please clarify your document question."
     assert "clarification_question_asked" in result["execution_history"]
     assert CALLS["mcp"] == 0
+
+
+def test_load_evidence_by_references_encodes_figure_images_as_base64() -> None:
+    """Figure images stored as binary bytes are converted to base64 strings without NameError."""
+    fake_cursor = MagicMock()
+    fake_cursor.fetchall.side_effect = [
+        [
+            {
+                "id": "parent-1",
+                "doc_id": "doc-1",
+                "parent_text": "text",
+                "page_numbers": [1],
+                "figure_ids": ["fig-1"],
+                "table_ids": [],
+                "source_path": "doc.pdf",
+                "document_summary": "summary",
+            }
+        ],
+        [
+            {
+                "id": "child-1",
+                "parent_id": "parent-1",
+                "text_with_context": "child text",
+                "page_numbers": [1],
+            }
+        ],
+        [
+            {
+                "parent_id": "parent-1",
+                "id": "fig-1",
+                "caption": "diagram",
+                "bounding_boxes": [],
+                "image_bytes": b"\x89PNG\r\n\x1a\nfakeimagebytes",
+                "mime_type": "image/png",
+            }
+        ],
+        [],
+        [],
+    ]
+    fake_conn = MagicMock()
+    fake_conn.__enter__.return_value = fake_conn
+    fake_conn.cursor.return_value.__enter__.return_value = fake_cursor
+
+    with patch("orchestration.activities._psycopg") as mock_psycopg:
+        mock_psycopg.return_value.connect.return_value = fake_conn
+        mock_psycopg.return_value.rows.dict_row = None
+        evidence = _load_evidence_by_references([{"chunk_id": "child-1", "parent_id": "parent-1"}])
+
+    assert len(evidence) == 1
+    assert len(evidence[0]["figures"]) == 1
+    fig = evidence[0]["figures"][0]
+    assert fig["id"] == "fig-1"
+    assert "image_base64" in fig
+    assert fig["mime_type"] == "image/png"
+
 
 
