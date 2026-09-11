@@ -1,0 +1,596 @@
+{
+  "core/config.py": {
+    "mtime": 1788801614.382928,
+    "seen": 1788803281.421879,
+    "ast_hash": "0b85d2fbc6f624dfac8ae430a3e479b7",
+    "semantic_hash": ""
+  },
+  "ingestion/doc_processor.py": {
+    "mtime": 1788885489.9348104,
+    "seen": 1788885917.3169532,
+    "ast_hash": "6518cba7328d84e2f5d1229c46a5c6b4",
+    "semantic_hash": ""
+  },
+  "tests/test_doc_processor.py": {
+    "mtime": 1788602073.412349,
+    "seen": 1788603303.9099321,
+    "ast_hash": "fc11ec924738e7b9e1e9c4f469d7c5a3",
+    "semantic_hash": "fc11ec924738e7b9e1e9c4f469d7c5a3"
+  },
+  "tests/test_doc_processor_guardrails.py": {
+    "mtime": 1788594484.7115686,
+    "seen": 1788603303.9099321,
+    "ast_hash": "72723991acfa3bae991fdb05453ebfc3",
+    "semantic_hash": "72723991acfa3bae991fdb05453ebfc3"
+  },
+  "dummy_data/ifc-annual-report-2024-financials.pdf": {
+    "mtime": 1788415527.1951187,
+    "seen": 1788603303.9099479,
+    "ast_hash": "a055699b23ee3e49556f223e904feb02",
+    "semantic_hash": ""
+  },
+  "ingestion/progress.md": {
+    "mtime": 1788591744.6144953,
+    "seen": 1788603303.9099462,
+    "ast_hash": "a97a4440d297bc604d05fac2f9ec0617",
+    "semantic_hash": ""
+  },
+  "ingestion/preprocessor_guide.md": {
+    "mtime": 1788433537.8801632,
+    "seen": 1788603303.909945,
+    "ast_hash": "7e136a9b755a91eb32f22a3cf89bbf72",
+    "semantic_hash": ""
+  },
+  "tests/test_pg_engine_contract.py": {
+    "mtime": 1788885769.7574623,
+    "seen": 1788885917.3169699,
+    "ast_hash": "3733e8220e9b4ff62162f667a6de5068",
+    "semantic_hash": ""
+  },
+  "retrieval/schema.sql": {
+    "mtime": 1788885398.061308,
+    "seen": 1788885917.316962,
+    "ast_hash": "b78813382cbd65aeab497fc46daa2ece",
+    "semantic_hash": ""
+  },
+  "retrieval/__init__.py": {
+    "mtime": 1788452668.480395,
+    "seen": 1788603303.9099278,
+    "ast_hash": "7902a28ccb56af4d46861eade99ffbbe",
+    "semantic_hash": "7902a28ccb56af4d46861eade99ffbbe"
+  },
+  "retrieval/pg_engine.py": {
+    "mtime": 1788885609.0387177,
+    "seen": 1788885917.316962,
+    "ast_hash": "67373cfcf749b4869ebe6b07d33c588e",
+    "semantic_hash": ""
+  },
+  "retrieval/progress.md": {
+    "mtime": 1788591744.6719084,
+    "seen": 1788603303.909947,
+    "ast_hash": "39ee900d2537ee0363f9539c77673d6a",
+    "semantic_hash": ""
+  },
+  "retrieval/retrieval_guide.md": {
+    "mtime": 1788458160.3683674,
+    "seen": 1788603303.9099479,
+    "ast_hash": "613db76e9decd6835ac8a67df01babfa",
+    "semantic_hash": ""
+  },
+  "tests/test_document_identifiers.py": {
+    "mtime": 1788602066.0418978,
+    "seen": 1788603303.9099321,
+    "ast_hash": "e0727269ef3ee45feb9bcd7471721f87",
+    "semantic_hash": "e0727269ef3ee45feb9bcd7471721f87"
+  },
+  "tests/test_pg_engine_end_to_end.py": {
+    "mtime": 1788591801.176433,
+    "seen": 1788603303.909942,
+    "ast_hash": "ce22478e98cf2b77e89d854027c65079",
+    "semantic_hash": "ce22478e98cf2b77e89d854027c65079"
+  },
+  "tests/test_export_retrieval_db.py": {
+    "mtime": 1788456578.4406865,
+    "seen": 1788603303.909933,
+    "ast_hash": "d4e6645bf17df3bdfc6b55fdefb5ce25",
+    "semantic_hash": "d4e6645bf17df3bdfc6b55fdefb5ce25"
+  },
+  "scripts/export_retrieval_db.py": {
+    "mtime": 1788456609.0895166,
+    "seen": 1788603303.90993,
+    "ast_hash": "e1607f51b3ffab2922c273dc73c68029",
+    "semantic_hash": "e1607f51b3ffab2922c273dc73c68029"
+  },
+  "dummy_data/ifc-annual-report-2024-financials.retrieval-evaluation.json": {
+    "mtime": 1788458797.5517695,
+    "seen": 1788603303.9099221,
+    "ast_hash": "f77709104352982e44154ecdc06294ec",
+    "semantic_hash": "f77709104352982e44154ecdc06294ec"
+  },
+  "tests/test_retrieval_evaluation_metrics.py": {
+    "mtime": 1788630104.57066,
+    "seen": 1788630135.4656708,
+    "ast_hash": "069423c38a2c5ae727ab1db61418c0b0",
+    "semantic_hash": ""
+  },
+  "retrieval/evaluation_cases_ifc_2024.json": {
+    "mtime": 1788458760.1313603,
+    "seen": 1788603303.909929,
+    "ast_hash": "b405d9ed63c4bcd40a07b6b57cbcd79d",
+    "semantic_hash": "b405d9ed63c4bcd40a07b6b57cbcd79d"
+  },
+  "retrieval/evaluate.py": {
+    "mtime": 1788458951.3219736,
+    "seen": 1788603303.9099278,
+    "ast_hash": "f99e8b4050807e3ad5915430aab836cc",
+    "semantic_hash": "f99e8b4050807e3ad5915430aab836cc"
+  },
+  "tests/test_evaluation_set_builder.py": {
+    "mtime": 1788458675.1296368,
+    "seen": 1788603303.909933,
+    "ast_hash": "e93ee2ff5494d35fd358c6645683ddd7",
+    "semantic_hash": "e93ee2ff5494d35fd358c6645683ddd7"
+  },
+  "retrieval/evaluation_cases_ifc_2024_human_review.json": {
+    "mtime": 1788458641.9592068,
+    "seen": 1788603303.909929,
+    "ast_hash": "7d98e9ec5781ca7b6fb6ee86228d081f",
+    "semantic_hash": "7d98e9ec5781ca7b6fb6ee86228d081f"
+  },
+  "retrieval/build_evaluation_set.py": {
+    "mtime": 1788602939.875129,
+    "seen": 1788603303.9099278,
+    "ast_hash": "8d7f4451a51eefbd6f003d9a9b530823",
+    "semantic_hash": "8d7f4451a51eefbd6f003d9a9b530823"
+  },
+  "dummy_data/ifc-annual-report-2024-financials.retrieval-evaluation-unverified.json": {
+    "mtime": 1788459197.7337656,
+    "seen": 1788603303.9099221,
+    "ast_hash": "9954ccdabd90e933ae388691df7bbdb7",
+    "semantic_hash": "9954ccdabd90e933ae388691df7bbdb7"
+  },
+  "tests/test_orchestration.py": {
+    "mtime": 1788887186.6055954,
+    "seen": 1788887285.8301818,
+    "ast_hash": "38954cc9f573535e0ac2d85398a7e074",
+    "semantic_hash": ""
+  },
+  "orchestration/activities.py": {
+    "mtime": 1788886923.6471493,
+    "seen": 1788887285.8301702,
+    "ast_hash": "a260f14b540c71faada1f8cf6e8d1fef",
+    "semantic_hash": ""
+  },
+  "orchestration/worker.py": {
+    "mtime": 1788861045.8976698,
+    "seen": 1788885917.316957,
+    "ast_hash": "28fa9361723ec7f3183decd80be821f6",
+    "semantic_hash": ""
+  },
+  "orchestration/__init__.py": {
+    "mtime": 1788505726.4875627,
+    "seen": 1788603303.9099252,
+    "ast_hash": "d308df1d3799e81fe1ad0d1251ede687",
+    "semantic_hash": "d308df1d3799e81fe1ad0d1251ede687"
+  },
+  "orchestration/mcp_client.py": {
+    "mtime": 1788801739.3023677,
+    "seen": 1788803281.421886,
+    "ast_hash": "d83bfbc20a97707a375cc47c66eb5f04",
+    "semantic_hash": ""
+  },
+  "orchestration/workflows.py": {
+    "mtime": 1788887178.3063598,
+    "seen": 1788887285.8301718,
+    "ast_hash": "3d6fecc301418fef38ae37648af68e36",
+    "semantic_hash": ""
+  },
+  "orchestration/progress.md": {
+    "mtime": 1788591744.7283304,
+    "seen": 1788603303.909947,
+    "ast_hash": "222278838066b695a75aeaa316ba501a",
+    "semantic_hash": ""
+  },
+  "orchestration/orchestration_guide.md": {
+    "mtime": 1788542170.826255,
+    "seen": 1788603303.9099462,
+    "ast_hash": "0ec2ab45b5978202843011d8b817f99c",
+    "semantic_hash": ""
+  },
+  "tests/test_agent_graph.py": {
+    "mtime": 1788887193.3603575,
+    "seen": 1788887285.830178,
+    "ast_hash": "1f6d95c97ce639fbecdd2789d2ad6c59",
+    "semantic_hash": ""
+  },
+  "agent/graph.py": {
+    "mtime": 1788861045.8976696,
+    "seen": 1788885917.316949,
+    "ast_hash": "d52b266f73f4b5d754f920d1b1a8d713",
+    "semantic_hash": ""
+  },
+  "agent/__init__.py": {
+    "mtime": 1788861045.885062,
+    "seen": 1788885917.316948,
+    "ast_hash": "9117d603f72afc8a86013ffbf2ab5449",
+    "semantic_hash": ""
+  },
+  "agent/nodes.py": {
+    "mtime": 1788887170.7285812,
+    "seen": 1788887285.830163,
+    "ast_hash": "77ab3112b4d5d243ba75d701611fb74e",
+    "semantic_hash": ""
+  },
+  "agent/state.py": {
+    "mtime": 1788858323.5685225,
+    "seen": 1788885917.31695,
+    "ast_hash": "09fc0f050c3c377ab4fe06b92ce98aaf",
+    "semantic_hash": ""
+  },
+  "agent/agent_guide.md": {
+    "mtime": 1788545397.4037507,
+    "seen": 1788603303.909943,
+    "ast_hash": "8935b09644c4765ab8c0d0ea9504f53f",
+    "semantic_hash": ""
+  },
+  "agent/progress.md": {
+    "mtime": 1788591744.7861564,
+    "seen": 1788603303.909943,
+    "ast_hash": "70ef8251d2e3e6dc326ec51071cd59f4",
+    "semantic_hash": ""
+  },
+  "security/__init__.py": {
+    "mtime": 1788547710.9015663,
+    "seen": 1788603303.90993,
+    "ast_hash": "0d0e388bf70cf243d9cf66fee63b4491",
+    "semantic_hash": "0d0e388bf70cf243d9cf66fee63b4491"
+  },
+  "security/guardrails.py": {
+    "mtime": 1788844120.341812,
+    "seen": 1788844141.1242082,
+    "ast_hash": "fff4406d586b2c8554b3bbff5ea2765e",
+    "semantic_hash": ""
+  },
+  "tests/test_guardrails.py": {
+    "mtime": 1788844120.4834943,
+    "seen": 1788844141.124212,
+    "ast_hash": "c9e9827515c8fcd9a1dc1cf7c84ab807",
+    "semantic_hash": ""
+  },
+  "tests/test_openai_api.py": {
+    "mtime": 1788885801.794191,
+    "seen": 1788885917.316969,
+    "ast_hash": "bfba7913406504e8edd5dc691ddf8975",
+    "semantic_hash": ""
+  },
+  "interfaces/server.py": {
+    "mtime": 1788549007.0173683,
+    "seen": 1788603303.909924,
+    "ast_hash": "d73161f8e8bc1aa9b428ca0b8eb22681",
+    "semantic_hash": "d73161f8e8bc1aa9b428ca0b8eb22681"
+  },
+  "interfaces/__init__.py": {
+    "mtime": 1788549006.8897645,
+    "seen": 1788603303.909923,
+    "ast_hash": "b5ff74f9c877ee4b1962d0e9e7f5cf71",
+    "semantic_hash": "b5ff74f9c877ee4b1962d0e9e7f5cf71"
+  },
+  "interfaces/openai_api.py": {
+    "mtime": 1788885742.3360248,
+    "seen": 1788885917.3169541,
+    "ast_hash": "cd10e5506cd0447a0273484e9ac18478",
+    "semantic_hash": ""
+  },
+  "uploaded_documents/d7c505e65a634e52a46e50d094015691/ifc-annual-report-2024-financials.pdf": {
+    "mtime": 1788553413.5347612,
+    "seen": 1788603303.909958,
+    "ast_hash": "a055699b23ee3e49556f223e904feb02",
+    "semantic_hash": ""
+  },
+  "openwebui/morpheus_rag_pipe.py": {
+    "mtime": 1788862746.2246416,
+    "seen": 1788885917.3169549,
+    "ast_hash": "c95fea129f2d28eec493d9726ac89530",
+    "semantic_hash": ""
+  },
+  "tests/test_openwebui_pipe.py": {
+    "mtime": 1788862746.2245224,
+    "seen": 1788885917.316969,
+    "ast_hash": "b368f48b02698b2a37f880bd9e2e79af",
+    "semantic_hash": ""
+  },
+  "openwebui/README.md": {
+    "mtime": 1788554428.6933548,
+    "seen": 1788603303.9099462,
+    "ast_hash": "3753793fe80e27e00d1ddf2dc2df0e60",
+    "semantic_hash": ""
+  },
+  "uploaded_documents/1af96ad41c124454a9105f5890dbcb3d/2db7a3d7-33a8-44ff-9048-d6dec6d2a321_Form 11-UAN Declaration.pdf": {
+    "mtime": 1788556519.2100267,
+    "seen": 1788603303.909952,
+    "ast_hash": "f6efc0e795f4c5e908dd0e0b5c0de842",
+    "semantic_hash": ""
+  },
+  "uploaded_documents/9ed56b61d30544b9846cbe2c050e6229/2db7a3d7-33a8-44ff-9048-d6dec6d2a321_Form 11-UAN Declaration.pdf": {
+    "mtime": 1788556614.4055119,
+    "seen": 1788603303.909954,
+    "ast_hash": "f6efc0e795f4c5e908dd0e0b5c0de842",
+    "semantic_hash": ""
+  },
+  "uploaded_documents/01d78a7db7f04a529c31170ffbccbb9f/2db7a3d7-33a8-44ff-9048-d6dec6d2a321_Form 11-UAN Declaration.pdf": {
+    "mtime": 1788556602.1603768,
+    "seen": 1788603303.9099488,
+    "ast_hash": "f6efc0e795f4c5e908dd0e0b5c0de842",
+    "semantic_hash": ""
+  },
+  "uploaded_documents/1f3ac7b127c84df2b02504c71b8fc1d6/2db7a3d7-33a8-44ff-9048-d6dec6d2a321_Form 11-UAN Declaration.pdf": {
+    "mtime": 1788556628.2589364,
+    "seen": 1788603303.909952,
+    "ast_hash": "f6efc0e795f4c5e908dd0e0b5c0de842",
+    "semantic_hash": ""
+  },
+  "uploaded_documents/a4976ab77def457d9effc87805f606aa/2db7a3d7-33a8-44ff-9048-d6dec6d2a321_Form 11-UAN Declaration.pdf": {
+    "mtime": 1788556558.136884,
+    "seen": 1788603303.909955,
+    "ast_hash": "f6efc0e795f4c5e908dd0e0b5c0de842",
+    "semantic_hash": ""
+  },
+  "uploaded_documents/bcfeae540169490891f36880089b0e56/2db7a3d7-33a8-44ff-9048-d6dec6d2a321_Form 11-UAN Declaration.pdf": {
+    "mtime": 1788556541.9525073,
+    "seen": 1788603303.9099572,
+    "ast_hash": "f6efc0e795f4c5e908dd0e0b5c0de842",
+    "semantic_hash": ""
+  },
+  "uploaded_documents/07ff68c2cf874142b6181856f7db24ee/2db7a3d7-33a8-44ff-9048-d6dec6d2a321_Form 11-UAN Declaration.pdf": {
+    "mtime": 1788556577.2681434,
+    "seen": 1788603303.90995,
+    "ast_hash": "f6efc0e795f4c5e908dd0e0b5c0de842",
+    "semantic_hash": ""
+  },
+  "uploaded_documents/a629151cd7b2423eb48b57a5f478e915/2db7a3d7-33a8-44ff-9048-d6dec6d2a321_Form 11-UAN Declaration.pdf": {
+    "mtime": 1788556530.2312646,
+    "seen": 1788603303.909955,
+    "ast_hash": "f6efc0e795f4c5e908dd0e0b5c0de842",
+    "semantic_hash": ""
+  },
+  "uploaded_documents/8e58617c6fde421daf29e8e04e87afe1/2db7a3d7-33a8-44ff-9048-d6dec6d2a321_Form 11-UAN Declaration.pdf": {
+    "mtime": 1788556565.9219103,
+    "seen": 1788603303.909954,
+    "ast_hash": "f6efc0e795f4c5e908dd0e0b5c0de842",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20260904_212652_why_is_morpheus_not_a_general_chatbot_with_optiona.md": {
+    "mtime": 1788557212.127217,
+    "seen": 1788603303.909944,
+    "ast_hash": "184ef48f25c5e5a93c3467b339148aee",
+    "semantic_hash": ""
+  },
+  "uploaded_documents/c403ebbf826043de8162eb124b5fef28/fb4d88bc-e676-48c4-8ce7-8cd50354c635_Circular For 2026 Batch (1).pdf": {
+    "mtime": 1788558707.5613985,
+    "seen": 1788603303.9099572,
+    "ast_hash": "5059f7521fbbc422007dbaec0c35b673",
+    "semantic_hash": ""
+  },
+  "uploaded_documents/0471ade240a34dff9055e378253cce4b/80e334b3-0162-4ad8-bc1a-0421e2bf8bfb_UC-dbbb74fe-e370-42cc-b592-18aca60c069a.pdf": {
+    "mtime": 1788559799.7860868,
+    "seen": 1788603303.9099488,
+    "ast_hash": "c17986bfbac2c14dd51a50aa246aa9ac",
+    "semantic_hash": ""
+  },
+  "uploaded_documents/71d4b2ee30454d63850062f7948512b7/33b7e6f3-886e-4f51-b5a6-1f8461fb2cee_Final Year Major Project Report Automated Quality Control System Using ML.pdf": {
+    "mtime": 1788560026.2357073,
+    "seen": 1788603303.909954,
+    "ast_hash": "062eacf8ce566c2a95c996de8f3a6e2b",
+    "semantic_hash": ""
+  },
+  "uploaded_documents/0822ad0dc6c642f6a93f446dc4edcd0d/1a1b2a73-ccaf-4011-8ee9-131e6b0df05d_Benefits Manual_HB__Grid Dynamics V1- 09.02.2024.pdf": {
+    "mtime": 1788592342.7085843,
+    "seen": 1788603303.90995,
+    "ast_hash": "4afb78a83f2f90b1138afd5241412e90",
+    "semantic_hash": ""
+  },
+  "uploaded_documents/11a1ff246fa44bf4812ea3e794f080c5/1a1b2a73-ccaf-4011-8ee9-131e6b0df05d_Benefits Manual_HB__Grid Dynamics V1- 09.02.2024.pdf": {
+    "mtime": 1788592664.5531046,
+    "seen": 1788603303.909951,
+    "ast_hash": "4afb78a83f2f90b1138afd5241412e90",
+    "semantic_hash": ""
+  },
+  "uploaded_documents/b1b61e55b2224802920c3a7278d9102d/1a1b2a73-ccaf-4011-8ee9-131e6b0df05d_Benefits Manual_HB__Grid Dynamics V1- 09.02.2024.pdf": {
+    "mtime": 1788592342.3711739,
+    "seen": 1788603303.909956,
+    "ast_hash": "4afb78a83f2f90b1138afd5241412e90",
+    "semantic_hash": ""
+  },
+  "uploaded_documents/00fc0a439f774083940ecd7a5c917c9e/eb8a850d-0bbc-4c5f-a21c-e456689aae00_Circular For 2026 Batch (1).pdf": {
+    "mtime": 1788593257.9574656,
+    "seen": 1788603303.9099479,
+    "ast_hash": "5059f7521fbbc422007dbaec0c35b673",
+    "semantic_hash": ""
+  },
+  "uploaded_documents/ce474627803041f1b884a1d66cb0424d/49a8400f-a7b4-4de6-b369-0a38fdcd2c24_Benefits Manual_HB__Grid Dynamics V1- 09.02.2024 (1).pdf": {
+    "mtime": 1788592877.3970823,
+    "seen": 1788603303.9099572,
+    "ast_hash": "4afb78a83f2f90b1138afd5241412e90",
+    "semantic_hash": ""
+  },
+  "uploaded_documents/12f4d52ea50e4daa8165bab50ab586a6/11d8a60d-1f5d-4a87-88a1-a6e21732f698_YashveerSingh_TinyLlama_Finetuning_Report_LaTex.pdf": {
+    "mtime": 1788595424.4611938,
+    "seen": 1788603303.909951,
+    "ast_hash": "7106430a549381a2be89495f4cb391ad",
+    "semantic_hash": ""
+  },
+  "uploaded_documents/2bef59d6159446a792d1527b4f1fc071/4eba099b-6e5a-441f-9675-c107c91081a7_Principles of System Design and Architecture of Intelligent Digital Platforms.pdf": {
+    "mtime": 1788594886.2009974,
+    "seen": 1788603303.909953,
+    "ast_hash": "71c1790f8bfea763bad1e435342c017c",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20260905_092712_why_does_the_first_ifc_document_overview_query_fai.md": {
+    "mtime": 1788600432.6980042,
+    "seen": 1788603303.909944,
+    "ast_hash": "d2551517d2d28745ce7c87dcabe44080",
+    "semantic_hash": ""
+  },
+  "uploaded_documents/e36dcab3e7194f128d661cdc0634f9fb/a137324e-af7a-456d-bce1-4a5434526f3f_ifc-annual-report-2024-financials.pdf": {
+    "mtime": 1788597115.9337592,
+    "seen": 1788603303.909958,
+    "ast_hash": "a055699b23ee3e49556f223e904feb02",
+    "semantic_hash": ""
+  },
+  "uploaded_documents/0fe0b12e566743f195c44149477c398b/3fea114a-8531-4bb9-9bca-6b186f78b063_ifc-annual-report-2024-financials.pdf": {
+    "mtime": 1788598093.5195205,
+    "seen": 1788603303.90995,
+    "ast_hash": "a055699b23ee3e49556f223e904feb02",
+    "semantic_hash": ""
+  },
+  "uploaded_documents/5779993fe0ee441db151a633588d7b08/6c36b52c-a67a-4916-964e-fdc9d3d8d36d_Good CV Example #3.docx.pdf": {
+    "mtime": 1788596800.6794283,
+    "seen": 1788603303.909953,
+    "ast_hash": "83944fd1dd58a3ff867a50f8580733d6",
+    "semantic_hash": ""
+  },
+  "uploaded_documents/adea367f5f25426e921f3b4d2421954c/a137324e-af7a-456d-bce1-4a5434526f3f_ifc-annual-report-2024-financials.pdf": {
+    "mtime": 1788597115.9191487,
+    "seen": 1788603303.909956,
+    "ast_hash": "a055699b23ee3e49556f223e904feb02",
+    "semantic_hash": ""
+  },
+  "pyproject.toml": {
+    "mtime": 1788801946.4680157,
+    "seen": 1788803281.421887,
+    "ast_hash": "7f3633ed67d95d7f31397248285cd14e",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20260905_095846_what_calls_document_id_for_file_and_how_does_a_doc.md": {
+    "mtime": 1788602326.572482,
+    "seen": 1788603303.909945,
+    "ast_hash": "a8b49ced06c0187b0e1d2efb20b31410",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20260905_144249_22e24e90_why_was_a_benign_sinusitis_document_question_block.md": {
+    "mtime": 1788619369.2138176,
+    "seen": 1788630135.465674,
+    "ast_hash": "4f486b35704aa8827288db4eb37b8f70",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20260905_173423_d6fb39f4_what_is_the_current_confidence_layer_in_morpheus.md": {
+    "mtime": 1788629663.7952743,
+    "seen": 1788630135.465675,
+    "ast_hash": "07cd1cb34e89902a4f14f35a77794bee",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20260905_173900_c5cc1403_are_the_current_retrieval_confidence_thresholds_to.md": {
+    "mtime": 1788629940.7900815,
+    "seen": 1788630135.465675,
+    "ast_hash": "9281f4db1f116a21e7b30340f03c8d8d",
+    "semantic_hash": ""
+  },
+  "uploaded_documents/67de506562b248929de11c14670573c9/e2b9494e-8a28-45bb-8221-c25c83d19929_HDFC-policy.pdf": {
+    "mtime": 1788604565.8605993,
+    "seen": 1788630135.4656909,
+    "ast_hash": "f21c522578f87e6c02fc06ed6d226c08",
+    "semantic_hash": ""
+  },
+  "uploaded_documents/d5c93a5b52b542ea895bf861e95e9787/966580d6-6d20-4399-b971-74d7a57721b3_Grid Dynamics_Internship Agreement_Yashveer Singh 3.pdf": {
+    "mtime": 1788603846.2469108,
+    "seen": 1788630135.465697,
+    "ast_hash": "08b9b669eba199f74b56374489ed82a8",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20260906_143140_acc13853_what_is_morpheus_still_missing_relative_to_agentic.md": {
+    "mtime": 1788705100.6603012,
+    "seen": 1788707275.833976,
+    "ast_hash": "8fd834c54b7774923b146f69a6cd584d",
+    "semantic_hash": ""
+  },
+  "uploaded_documents/1587c85a5dd5493db16b73210d9c7309/eb58ff4e-e321-452f-9559-9f1717df15a6_YashveerSingh_TinyLlama_Finetuning_Report_LaTex.pdf": {
+    "mtime": 1788703303.089097,
+    "seen": 1788707275.833984,
+    "ast_hash": "7106430a549381a2be89495f4cb391ad",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20260906_150832_dc8b2a25_how_was_historical_chat_content_prevented_from_cau.md": {
+    "mtime": 1788707312.4087741,
+    "seen": 1788707790.295787,
+    "ast_hash": "8dc42a7ce125aa67d55b6e097680aebe",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20260906_151630_a24c059b_how_are_role_validation_and_guardrail_screening_en.md": {
+    "mtime": 1788707790.3820856,
+    "seen": 1788757658.808886,
+    "ast_hash": "816428f13fc2263524072da1eb6080fe",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20260907_050738_b415403b_how_does_clarification_approval_resume_a_temporal.md": {
+    "mtime": 1788757658.9124026,
+    "seen": 1788758366.770436,
+    "ast_hash": "661cebef50aa7aff9ca0a0ee9631c7b3",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20260907_051926_ecd036ed_how_does_durable_pdf_ingestion_flow_from_the_fasta.md": {
+    "mtime": 1788758366.8506184,
+    "seen": 1788771515.286519,
+    "ast_hash": "46375bdfc84ef89ba9a63f286d80b1fa",
+    "semantic_hash": ""
+  },
+  "scripts/trigger_reindex.py": {
+    "mtime": 1788774716.790085,
+    "seen": 1788803281.4218922,
+    "ast_hash": "6b58250730684037e1e1c6e6a52ce63e",
+    "semantic_hash": ""
+  },
+  "tests/test_observability.py": {
+    "mtime": 1788803197.2272975,
+    "seen": 1788803281.421897,
+    "ast_hash": "362c365c906c6895d936142370783054",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20260907_085835_73d5a6f9_how_does_the_ingestion_workflow_avoid_temporal_pay.md": {
+    "mtime": 1788771515.3719537,
+    "seen": 1788803281.421907,
+    "ast_hash": "b0e438a6edfcddddbe3e71f29699436c",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20260908_071457_a0ae00c7_is_our_morpheus_implementation_better_than_already.md": {
+    "mtime": 1788851697.0781622,
+    "seen": 1788885917.316978,
+    "ast_hash": "bf873cfac76883776bfce7d7f15e020f",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20260908_085449_e755c252_is_morpheus_an_actual_rag_agent_or_just_a_rag_chat.md": {
+    "mtime": 1788857689.887717,
+    "seen": 1788885917.316978,
+    "ast_hash": "28481e5b21c31e79b2dfd33599d6efde",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20260908_085727_5ef069d6_what_is_missing_for_morpheus_to_be_truly_agentic.md": {
+    "mtime": 1788857847.3945317,
+    "seen": 1788885917.316979,
+    "ast_hash": "85febea27dbda051e6bafc1b0de62da2",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20260908_094353_4e65e102_do_langgraph_langsmith_logs_represent_a_true_react.md": {
+    "mtime": 1788860633.5021677,
+    "seen": 1788885917.316979,
+    "ast_hash": "091793fb7df73b879b7244db80a021ba",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20260908_094648_3eb7365a_how_do_i_wrap_an_agent_when_created_inside_a_tempo.md": {
+    "mtime": 1788860808.1297257,
+    "seen": 1788885917.31698,
+    "ast_hash": "a29b130823bdd0a4344611dd2258de54",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20260908_100629_efaa9037_do_you_deem_it_a_true_react_agent_now.md": {
+    "mtime": 1788861989.7192712,
+    "seen": 1788885917.31698,
+    "ast_hash": "d156a7aada0747191fe4c665c9a92bdc",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20260908_161442_30ad9bba_how_are_tables_processed__are_they_broken_into_chu.md": {
+    "mtime": 1788884082.1150198,
+    "seen": 1788885917.31698,
+    "ast_hash": "20c30ad32b5ce9fc4dc54b18e35e89c3",
+    "semantic_hash": ""
+  }
+}
